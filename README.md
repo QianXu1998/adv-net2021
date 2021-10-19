@@ -10,6 +10,7 @@ It's time that you get to know a bit more about it 🙂
 - [Overview](#overview)
 - [Timeline](#timeline)
 - [Group registration](#group-registration)
+- [Daily testing and leaderboard](#daily-testing-and-leaderboard)
 
 <!-- /TOC -->
 
@@ -79,3 +80,12 @@ The project is done in groups of three students (freely composed).
 Please **register your groups by next Tuesday (Oct 26)!**
 
 👉 &nbsp; [Group registration link](https://adv-net.ethz.ch/registration/)
+
+## Daily testing and leaderboard
+
+Soon after the project start, we will test your progress once per day and publish on the project website. This will allow:
+
+- Us to monitor your progress, and 
+- You to know how you (currently) fare compared to the other groups.
+
+Naturally, you will be able to test your own network as much as you own in your own VMs. Details will be provided when the project starts. 
