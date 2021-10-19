@@ -19,8 +19,9 @@ It's time that you get to know a bit more about it 🙂
 
 The AdvNet 2021 project is organized as a competition where students (in groups of 3) have full freedom to program and configure a network to perform best. The network topology is that of a real AS (the [Claranet network](https://noc.eu.clara.net/), shown below) where we consider all nodes to be P4-programmable switches. Some links have different delays and bandwidth capacity, which will be detailed in due time.
 
-![topology_claranet](img/topology_claranet.png)
-*The [Claranet network](https://noc.eu.clara.net/). This is the network topology you will program in this year's project.*
+| ![topology_claranet](img/topology_claranet.png) |
+|:--:|
+| *The [Claranet network](https://noc.eu.clara.net/); this is the network topology you will program in this year's project.* |
 
 Network performance is measured as its ability to meet a number of service-level agreements (SLAs). These may relate to include:
 
