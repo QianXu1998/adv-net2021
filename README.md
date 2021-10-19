@@ -81,6 +81,8 @@ Please **register your groups by next Tuesday (Oct 26)!**
 
 👉 &nbsp; [Group registration link](https://adv-net.ethz.ch/registration/)
 
+We created a Teams channel (Group search) for those of you who currently have a group of 2 or are alone. If you struggle to find a group, reach out to Romain via Teams or email.
+
 ## Daily testing and leaderboard
 
 Soon after the project start, we will test your progress once per day and publish on the project website. This will allow:
