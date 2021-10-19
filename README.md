@@ -48,8 +48,8 @@ Ultimately, all groups will be assessed on the same set of scenarios, which incl
 The groups will be ranked based on the number of SLAs their network successfully meet. There will be some weighting between the SLAs; the ranking scheme will be known in advance.
 
 > 🚨 **Important** 🚨  
-The group ranking in the competition is _not_ taken into account in the final project grade.   
-The project will be graded based on:
+>  
+> The group ranking in the competition is _not_ taken into account in the final project grade. The project will be graded based on:
 >
 > - The interest of the solution;
 > - The quality of the code;
