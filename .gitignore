@@ -1,1 +1,27 @@
 /.vscode/
+
+*.pyc
+
+# Emacs
+*~
+ls
+
+# Compiled JSON
+*.json
+!*config*.json
+!*city_distances.json
+!*constrains.json
+
+*p4i
+*p4rt
+
+*.pcap
+*.db
+
+# Mini-internet files
+build/topo/router_config.txt
+shared/
+
+# log folder
+log/
+outputs/
