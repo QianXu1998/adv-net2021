@@ -1,4 +1,3 @@
-from __future__ import print_function
 import subprocess
 import math
 import pandas as pd
@@ -9,7 +8,7 @@ import pathlib
 import re
 import time
 import glob
-from p4utils.mininetlib.log import debug, info, output, warning, error
+from p4utils.mininetlib.log import info
 
 
 def load_conf(conf_file):
