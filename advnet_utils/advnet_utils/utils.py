@@ -8,6 +8,7 @@ import json
 import pathlib
 import re
 import time
+import glob
 from p4utils.mininetlib.log import debug, info, output, warning, error
 
 
@@ -150,6 +151,43 @@ def tcp_perf(sender_csv, receiver_csv):
     return fcr, avg_delay, fct
 
 
+def print_output_performances(outputdir):
+    """Prints udp and tcp flows perfromances"""
+
+    print("Experiment performances: {}".format(outputdir))
+    print("=====================================\n")
+    output_files = glob.glob(outputdir + "/*.csv")
+    udp_flows = [x for x in output_files if "udp" in x]
+    tcp_flows = [x for x in output_files if "tcp" in x]
+
+    # process udp flows
+    print("UDP Flows:")
+    print("==========")
+    udp_senders = [x for x in udp_flows if "send" in x]
+    for udp_sender in udp_senders:
+        # get flow info
+        _str = udp_sender.split("/")[-1]
+        _str = _str.replace("send-", "")
+        _str = _str.replace("_udp.csv", "")
+        #import ipdb; ipdb.set_trace()
+        node1, h1, node2, h2, sport, dport = _str.split("_")
+        udp_receiver = udp_sender.replace("send", "recv")
+        performance = udp_perf(udp_sender, udp_receiver)
+        print("{}:{}->{}:{}: {}".format(node1+"_"+h1, sport, node2+"_"+h2, dport, performance))
+    print("\n")
+    # process tcp flows
+    print("TCP Flows:")
+    print("==========")
+    tcp_senders = [x for x in tcp_flows if "send" in x]
+    for tcp_sender in tcp_senders:
+        _str = tcp_sender.split("/")[-1]
+        _str = _str.replace("send-", "")
+        _str = _str.replace("_tcp.csv", "")
+        node1, h1, node2, h2, sport, dport = _str.split("_")
+        tcp_receiver = tcp_sender.replace("send", "recv")
+        performance = tcp_perf(tcp_sender, tcp_receiver)
+        print("{}:{}->{}:{}: {}".format(node1+"_"+h1, sport, node2+"_"+h2, dport, performance))
+
 def _parse_rate(rate):
     """Parse a given rate in B/s.
 
@@ -256,12 +294,12 @@ def install_optimized_switch(src_path="~/p4-tools/bmv2-opt/"):
 def clean_dir(src_path):
     """Clean directory"""
     src_path = src_path.replace("~", str(pathlib.Path.home()))
+    if not os.path.exists(src_path):
+        raise Exception("Path {} does not exist".format(src_path))
     subprocess.call("sudo p4run --clean-dir", shell=True, cwd=src_path)
 
 # Experiment Utils
 # ================
-
-
 def wait_experiment(start_time, experiment_length, receivers_wait_offset=10):
     """Basic function to wait for the experiments to be run"""
     info("Scheduling Tasks...\n")

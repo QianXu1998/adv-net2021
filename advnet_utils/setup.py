@@ -27,6 +27,7 @@ setup(
         'networkx',
         'psutil',
         'setuptools',
+        'pandas'
     ],
     extras_require={}
 )

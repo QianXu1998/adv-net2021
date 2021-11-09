@@ -1,24 +1,20 @@
 """Adv-net 2021 project runner"""
 
-"""
-Usage: sudo python3 run.py 
-"""
+# get current path
+from advnet_utils.utils import load_constrains, wait_experiment
+from advnet_utils.topology_builder import build_base_topology, add_links_to_topology
 from logging import debug
 import os
 import argparse
 import time
-
 from advnet_utils.network_API import AdvNetNetworkAPI
 from advnet_utils.links_manager import LinksManager
 from advnet_utils.traffic_manager import TrafficManager
 from threading import Thread
-
-# get current path
 cur_dir = os.path.dirname(os.path.abspath(__file__)) + "/"
-from advnet_utils.topology_builder import build_base_topology, add_links_to_topology
-from advnet_utils.utils import load_constrains, wait_experiment
 
-def run_controllers(net: AdvNetNetworkAPI, inputidr):
+
+def run_controllers(net: AdvNetNetworkAPI, inputidr, scenario: str):
     """Schedules controllers
 
     The controller code must be placed in `inputdir/controllers/`
@@ -30,17 +26,20 @@ def run_controllers(net: AdvNetNetworkAPI, inputidr):
     must be called: <switch_name>-controller.py. For example: BAR-controller.py
     
     """
+    # path to base traffic
+    base_traffic_file = inputidr + "/inputs/{}.traffic-base".format(scenario)
     # path
     controllers_dir = inputidr + "/controllers/"
     # schedule global controller if exists.
     if os.path.isfile(controllers_dir + "controller.py"):
         net.execScript(
-            'python {}/controller.py > /dev/null &'.format(controllers_dir), reboot=True)
+            'python {}/controller.py --base-traffic {} > /dev/null &'.format(controllers_dir, base_traffic_file), reboot=True)
     # schedule other controllers
     for switch_name in net.p4switches():
         if os.path.isfile(controllers_dir + "{}-controller.py".format(switch_name)):
             net.execScript(
-                'python {}/{}-controller.py > /dev/null &'.format(controllers_dir, switch_name), reboot=True)
+                'python {}/{}-controller.py --base-traffic {}> /dev/null &'.format(controllers_dir, switch_name, base_traffic_file), reboot=True)
+
 
 def program_switches(net: AdvNetNetworkAPI, inputdir):
     """Programs switches 
@@ -56,10 +55,10 @@ def program_switches(net: AdvNetNetworkAPI, inputdir):
     # path
     p4src_dir = inputdir + "/p4src/"
     for switch_name in net.p4switches():
-        p4src_path =p4src_dir + "{}.p4".format(switch_name)
+        p4src_path = p4src_dir + "{}.p4".format(switch_name)
         if os.path.isfile(p4src_path):
             net.setP4Source(switch_name, p4src_path)
-        else: # default program
+        else:  # default program
             net.setP4Source(switch_name, p4src_dir + "/switch.p4")
 
 
@@ -78,13 +77,13 @@ def run_network(inputdir, scenario, outputdir, debug_mode, log_enabled, pcap_ena
     program_switches(net, inputdir)
     # load constrains
     project_constrains = load_constrains(cur_dir + "/project/constrains.json")
-    
+
     # add additional links
     _add_links_constrains = project_constrains["add_links_constrains"]
     _topology_path = cur_dir + "/project/"
     _links_file = inputdir + "/inputs/" + "{}.links".format(scenario)
     _added_links = add_links_to_topology(
-        net, topology_path=_topology_path, links_file=_links_file, 
+        net, topology_path=_topology_path, links_file=_links_file,
         constrains=_add_links_constrains)
 
     # Assignment strategy
@@ -99,7 +98,7 @@ def run_network(inputdir, scenario, outputdir, debug_mode, log_enabled, pcap_ena
     _failure_constrains = project_constrains["failure_constrains"]
     _failures_file = inputdir + "/inputs/" + "{}.failure".format(scenario)
     links_manager = LinksManager(net, failures_file=_failures_file,
-                 constrains=_failure_constrains, added_links=_added_links)
+                                 constrains=_failure_constrains, added_links=_added_links)
     # schedules link events
     links_manager.start(simulation_time_reference)
 
@@ -120,24 +119,24 @@ def run_network(inputdir, scenario, outputdir, debug_mode, log_enabled, pcap_ena
     experiment_duration = max(_additional_traffic_constrains.get(
         "max_time", 0), _base_traffic_constrains.get("max_time", 0))
     traffic_manager = TrafficManager(net, _additional_traffic_file,
-                                     _base_traffic_file, _additional_traffic_constrains, 
+                                     _base_traffic_file, _additional_traffic_constrains,
                                      _base_traffic_constrains, outputdir, experiment_duration)
-    # schedule flows                                    
+    # schedule flows
     traffic_manager.start(simulation_time_reference)
 
     # Adds controllers.
-    run_controllers(net, inputdir)
+    run_controllers(net, inputdir, scenario)
 
     # enable or disable logs and pcaps
     if log_enabled:
         net.enableLogAll()
     else:
         net.disableLogAll()
-    if pcap_enabled: # not recommended 
+    if pcap_enabled:  # not recommended
         net.enablePcapDumpAll()
     else:
         net.disablePcapDumpAll()
-    
+
     # sets debug mode
     if debug_mode:
         # enable cli
@@ -152,7 +151,7 @@ def run_network(inputdir, scenario, outputdir, debug_mode, log_enabled, pcap_ena
     # wait for experiment to finish
     if not debug_mode:
         wait_experiment(simulation_time_reference, experiment_duration)
-      
+
 # MAIN Runner
 # ==========
 
@@ -167,7 +166,7 @@ def get_args():
                         type=float, required=False, default=5)
     parser.add_argument('--outputdir', help='Path were the experiment outputs will be saved. If it exists, all content is erased',
                         type=str, required=False, default='./outputs/')
-    parser.add_argument('--debug-mode', help='Runs topology indefinetely',
+    parser.add_argument('--debug-mode', help='Runs topology indefinetely and lets you access the mininet cli',
                         action='store_true', required=False, default=False)
     parser.add_argument('--log-enabled', help='Enables logging',
                         action='store_true', required=False, default=False)

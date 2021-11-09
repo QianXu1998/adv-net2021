@@ -149,12 +149,12 @@ class Delay(object):
 
     def get_rtt(self, src, dst):
         """Get the rtt between 2 cities"""
-
+        
         # check if cities exist
         if src not in self.cities:
-            assert("City {} does not exist".format(src))
+            raise Exception("City {} does not exist".format(src))
         if dst not in self.cities:
-            assert("City {} does not exist".format(dst))
+            raise Exception("City {} does not exist".format(dst))
 
         # get distance and delay
         distance = self.get_distance(src, dst)
