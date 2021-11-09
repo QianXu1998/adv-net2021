@@ -184,7 +184,10 @@ Each scenario is defined by 4 inputs, found in the `inputs` directory:
 - `<scenario>.links`: Additional links that you can add to your topology.
 - `<scenario>.failure`: Network failures that you specify, defined as failure start time and duration for specific links.
 
-> Note that we only specify the base traffic. You will be evaluated with the traffic and failures that you---and the other groups!---specify. Try to come up with scenarios that allow your network to shine while being challenging for the others!
+> :rotating_light: __Important__ :rotating_light:  
+The `test.traffic-base` file that we pushed in your GitLab repository _is not_ the final base traffic that will be used in the competition. The final base traffic will be released shortly. 
+
+Note that we only specify the base traffic. You will be evaluated with the traffic and failures that you---and the other groups!---specify. Try to come up with scenarios that allow your network to shine while being challenging for the others!
 
 Below, we detail the format and constraints on the traffic, links, and failure inputs.
 
