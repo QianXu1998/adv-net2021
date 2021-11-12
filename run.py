@@ -1,7 +1,7 @@
 """Adv-net 2021 project runner"""
 
 # get current path
-from advnet_utils.utils import load_constrains, wait_experiment
+from advnet_utils.utils import load_constrains, wait_experiment, get_user
 from advnet_utils.topology_builder import build_base_topology, add_links_to_topology
 from logging import debug
 import os
@@ -14,17 +14,18 @@ from threading import Thread
 cur_dir = os.path.dirname(os.path.abspath(__file__)) + "/"
 
 
-def run_controllers(net: AdvNetNetworkAPI, inputidr, scenario: str):
+def run_controllers(net: AdvNetNetworkAPI, inputidr, scenario: str, log_enabled: bool=False):
     """Schedules controllers
 
     The controller code must be placed in `inputdir/controllers/`
 
-    You are allowed to run a maximum of one controller per node and one global controller. In general, you should be able to do everything with one single
+    You are allowed to run a maximum of one controller per node and one global
+    controller. In general, you should be able to do everything with one single
     controller.
 
     The global controller must be called: controller.py Per switch controllers
     must be called: <switch_name>-controller.py. For example: BAR-controller.py
-    
+
     """
     # path to base traffic
     base_traffic_file = inputidr + "/inputs/{}.traffic-base".format(scenario)
@@ -32,13 +33,21 @@ def run_controllers(net: AdvNetNetworkAPI, inputidr, scenario: str):
     controllers_dir = inputidr + "/controllers/"
     # schedule global controller if exists.
     if os.path.isfile(controllers_dir + "controller.py"):
+        # set log file
+        log_file = "/dev/null"
+        if log_enabled:
+            log_file = "./log/controller.log"
         net.execScript(
-            'python {}/controller.py --base-traffic {} > /dev/null &'.format(controllers_dir, base_traffic_file), reboot=True)
+            'python {}/controller.py --base-traffic {} > {} &'.format(controllers_dir, base_traffic_file, log_file), reboot=True)
     # schedule other controllers
     for switch_name in net.p4switches():
         if os.path.isfile(controllers_dir + "{}-controller.py".format(switch_name)):
+            # set log file
+            log_file = "/dev/null"
+            if log_enabled:
+                log_file = "./log/{}-controller.log".format(switch_name)
             net.execScript(
-                'python {}/{}-controller.py --base-traffic {}> /dev/null &'.format(controllers_dir, switch_name, base_traffic_file), reboot=True)
+                'python {}/{}-controller.py --base-traffic {} > {} &'.format(controllers_dir, switch_name, base_traffic_file, log_file), reboot=True)
 
 
 def program_switches(net: AdvNetNetworkAPI, inputdir):
@@ -62,7 +71,8 @@ def program_switches(net: AdvNetNetworkAPI, inputdir):
             net.setP4Source(switch_name, p4src_dir + "/switch.p4")
 
 
-def run_network(inputdir, scenario, outputdir, debug_mode, log_enabled, pcap_enabled, warmup_phase=5):
+def run_network(inputdir, scenario, outputdir, debug_mode, log_enabled, pcap_enabled, warmup_phase=10, no_events=False):
+    """Starts the project simulation"""
 
     # starts the flow scheduling task
     net = AdvNetNetworkAPI()
@@ -94,20 +104,24 @@ def run_network(inputdir, scenario, outputdir, debug_mode, log_enabled, pcap_ena
     # Start Simulation in the future
     simulation_time_reference = time.time() + warmup_phase
 
+    # we do no schedule events
     # schedule link failures
     _failure_constrains = project_constrains["failure_constrains"]
     _failures_file = inputdir + "/inputs/" + "{}.failure".format(scenario)
     links_manager = LinksManager(net, failures_file=_failures_file,
-                                 constrains=_failure_constrains, added_links=_added_links)
+                                constrains=_failure_constrains, added_links=_added_links)
     # schedules link events
-    links_manager.start(simulation_time_reference)
+    if no_events == False:
+        links_manager.start(simulation_time_reference)
 
     # Schedule Traffic
     # clean output dir
     if outputdir == "/":
         raise Exception("Trying to remove all disk!!")
     os.system("rm -rf {}".format(outputdir))
-    os.system("mkdir -p {}".format(outputdir))
+    # get user
+    _user = get_user()
+    os.system("sudo -u {} mkdir -p {}".format(_user, outputdir))
 
     _additional_traffic_constrains = project_constrains["additional_traffic_constrains"]
     _base_traffic_constrains = project_constrains["base_traffic_constrains"]
@@ -119,13 +133,14 @@ def run_network(inputdir, scenario, outputdir, debug_mode, log_enabled, pcap_ena
     experiment_duration = max(_additional_traffic_constrains.get(
         "max_time", 0), _base_traffic_constrains.get("max_time", 0))
     traffic_manager = TrafficManager(net, _additional_traffic_file,
-                                     _base_traffic_file, _additional_traffic_constrains,
-                                     _base_traffic_constrains, outputdir, experiment_duration)
+                                    _base_traffic_file, _additional_traffic_constrains,
+                                    _base_traffic_constrains, outputdir, experiment_duration)
     # schedule flows
-    traffic_manager.start(simulation_time_reference)
+    if no_events == False:
+        traffic_manager.start(simulation_time_reference)
 
     # Adds controllers.
-    run_controllers(net, inputdir, scenario)
+    run_controllers(net, inputdir, scenario, log_enabled)
 
     # enable or disable logs and pcaps
     if log_enabled:
@@ -163,7 +178,7 @@ def get_args():
     parser.add_argument('--scenario', help='Path to all input events (links, failures, traffic)',
                         type=str, required=False, default='test')
     parser.add_argument('--warmup', help='Time before starting the simulation',
-                        type=float, required=False, default=5)
+                        type=float, required=False, default=10)
     parser.add_argument('--outputdir', help='Path were the experiment outputs will be saved. If it exists, all content is erased',
                         type=str, required=False, default='./outputs/')
     parser.add_argument('--debug-mode', help='Runs topology indefinetely and lets you access the mininet cli',
@@ -172,10 +187,14 @@ def get_args():
                         action='store_true', required=False, default=False)
     parser.add_argument('--pcap-enabled', help='Enables pcap captures (not recommended)',
                         action='store_true', required=False, default=False)
+    parser.add_argument('--no-events', help='Disables all link and traffic events. Useful for debugging.',
+                        action='store_true', required=False, default=False)
+
     return parser.parse_args()
+
 
 
 if __name__ == "__main__":
     args = get_args()
     run_network(args.inputdir, args.scenario, args.outputdir, args.debug_mode,
-                args.log_enabled, args.pcap_enabled, float(args.warmup))
+                args.log_enabled, args.pcap_enabled, float(args.warmup), args.no_events)

@@ -8,6 +8,7 @@ import pathlib
 import re
 import time
 import glob
+import csv
 from p4utils.mininetlib.log import info
 
 
@@ -24,6 +25,11 @@ def log_error(*items):
 def run_command(command):
     print(command)
     return os.WEXITSTATUS(os.system(command))
+
+def get_user():
+    """Try to find the user who called sudo/pkexec."""
+    user = subprocess.check_output("echo ${SUDO_USER:-${USER}}", shell=True)
+    return user.strip().decode("utf-8") 
 
 # Rate Conversions
 #=================
@@ -151,7 +157,16 @@ def tcp_perf(sender_csv, receiver_csv):
 
 
 def print_output_performances(outputdir):
-    """Prints udp and tcp flows perfromances"""
+    """Prints and save udp and tcp flows perfromances"""
+
+    # Storing array
+    results = []
+    header = [
+        'src', 'dst', 'sport', 'dport', 'protocol',
+        'prr', 'delay', 'rtt', 'fct'
+    ]
+    results_file = 'results.csv'
+
 
     print("Experiment performances: {}".format(outputdir))
     print("=====================================\n")
@@ -173,6 +188,17 @@ def print_output_performances(outputdir):
         udp_receiver = udp_sender.replace("send", "recv")
         performance = udp_perf(udp_sender, udp_receiver)
         print("{}:{}->{}:{}: {}".format(node1+"_"+h1, sport, node2+"_"+h2, dport, performance))
+        results.append([
+            node1+"_"+h1,
+            node2+"_"+h2,
+            sport,
+            dport,
+            'udp',
+            performance[0], # PRR
+            performance[1], # delay
+            '',             # RTT/tcp delay (whatever that means)
+            ''              # FCT
+        ])
     print("\n")
     # process tcp flows
     print("TCP Flows:")
@@ -186,6 +212,23 @@ def print_output_performances(outputdir):
         tcp_receiver = tcp_sender.replace("send", "recv")
         performance = tcp_perf(tcp_sender, tcp_receiver)
         print("{}:{}->{}:{}: {}".format(node1+"_"+h1, sport, node2+"_"+h2, dport, performance))
+        results.append([
+            node1+"_"+h1,
+            node2+"_"+h2,
+            sport,
+            dport,
+            'tcp',
+            performance[0], # PRR
+            '',             # delay
+            performance[1], # RTT/tcp delay (whatever that means)
+            performance[2]  # FCT
+        ])
+
+    # save all results
+    with open(pathlib.Path(outputdir,results_file), 'w', encoding='UTF8', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(header)
+        writer.writerows(results)
 
 def _parse_rate(rate):
     """Parse a given rate in B/s.

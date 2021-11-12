@@ -330,7 +330,7 @@ Use `-h` to see all the command line parammeters.
 ```bash
 usage: run.py [-h] [--inputdir INPUTDIR] [--scenario SCENARIO]
               [--warmup WARMUP] [--outputdir OUTPUTDIR] [--debug-mode]
-              [--log-enabled] [--pcap-enabled]
+              [--log-enabled] [--pcap-enabled] [--no-events]
 
 optional arguments:
   -h, --help            show this help message and exit
@@ -344,6 +344,8 @@ optional arguments:
                         mininet cli
   --log-enabled         Enables logging
   --pcap-enabled        Enables pcap captures (not recommended)
+  --no-events           Disables all link and traffic events. Useful for
+                        debugging.
 ```
 
 > :rotating_light: We do not recommend enabling pcap captures. It might have a big impact on the experiment's performance, and it could make your VM run out of hard disk very quickly. Thus, use with care! :rotating_light:
@@ -400,7 +402,7 @@ If a link is strictly vertical, the bit rate for the top to bottom direction is 
 
 > Make sure your terminal is high and wide enough to fit the whole display!
 
-### `./cli.py set-opt-siwtch` and `./cli.py set-not-opt-siwtch`
+### `./cli.py set-opt-switch` and `./cli.py set-not-opt-switch`
 
 The VMs come with two pre-compiled versions of the software switch. One has been
 compiled with optimization flags, and the other with debug flags. You can
