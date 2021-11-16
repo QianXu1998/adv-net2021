@@ -71,7 +71,7 @@ def program_switches(net: AdvNetNetworkAPI, inputdir):
             net.setP4Source(switch_name, p4src_dir + "/switch.p4")
 
 
-def run_network(inputdir, scenario, outputdir, debug_mode, log_enabled, pcap_enabled, warmup_phase=10, no_events=False):
+def run_network(inputdir, scenario, outputdir, debug_mode, log_enabled, pcap_enabled, warmup_phase=10, check_constrains=True, no_events=False, only_check_inputs=False):
     """Starts the project simulation"""
 
     # starts the flow scheduling task
@@ -134,42 +134,42 @@ def run_network(inputdir, scenario, outputdir, debug_mode, log_enabled, pcap_ena
         "max_time", 0), _base_traffic_constrains.get("max_time", 0))
     traffic_manager = TrafficManager(net, _additional_traffic_file,
                                     _base_traffic_file, _additional_traffic_constrains,
-                                    _base_traffic_constrains, outputdir, experiment_duration)
+                                    _base_traffic_constrains, check_constrains, outputdir, experiment_duration)
     # schedule flows
     if no_events == False:
         traffic_manager.start(simulation_time_reference)
 
-    # Adds controllers.
-    run_controllers(net, inputdir, scenario, log_enabled)
+    if not only_check_inputs:
+        # Adds controllers.
+        run_controllers(net, inputdir, scenario, log_enabled)
 
-    # enable or disable logs and pcaps
-    if log_enabled:
-        net.enableLogAll()
-    else:
-        net.disableLogAll()
-    if pcap_enabled:  # not recommended
-        net.enablePcapDumpAll()
-    else:
-        net.disablePcapDumpAll()
+        # enable or disable logs and pcaps
+        if log_enabled:
+            net.enableLogAll()
+        else:
+            net.disableLogAll()
+        if pcap_enabled:  # not recommended
+            net.enablePcapDumpAll()
+        else:
+            net.disablePcapDumpAll()
 
-    # sets debug mode
-    if debug_mode:
-        # enable cli
-        net.enableCli()
-    else:
-        # disable cli
-        net.disableCli()
+        # sets debug mode
+        if debug_mode:
+            # enable cli
+            net.enableCli()
+        else:
+            # disable cli
+            net.disableCli()
 
-    # Start network
-    net.startNetwork()
+        # Start network
+        net.startNetwork()
 
-    # wait for experiment to finish
-    if not debug_mode:
-        wait_experiment(simulation_time_reference, experiment_duration)
+        # wait for experiment to finish
+        if not debug_mode:
+            wait_experiment(simulation_time_reference, experiment_duration)
 
 # MAIN Runner
-# ==========
-
+# ===========
 
 def get_args():
     parser = argparse.ArgumentParser()
@@ -178,7 +178,7 @@ def get_args():
     parser.add_argument('--scenario', help='Path to all input events (links, failures, traffic)',
                         type=str, required=False, default='test')
     parser.add_argument('--warmup', help='Time before starting the simulation',
-                        type=float, required=False, default=10)
+                        type=float, required=False, default=20)
     parser.add_argument('--outputdir', help='Path were the experiment outputs will be saved. If it exists, all content is erased',
                         type=str, required=False, default='./outputs/')
     parser.add_argument('--debug-mode', help='Runs topology indefinetely and lets you access the mininet cli',
@@ -190,11 +190,15 @@ def get_args():
     parser.add_argument('--no-events', help='Disables all link and traffic events. Useful for debugging.',
                         action='store_true', required=False, default=False)
 
+    parser.add_argument('--no-constrains', help='Disables traffic and link constrains (only use for testing).',
+                        action='store_false', required=False, default=True)
+    parser.add_argument('--check-inputs', help='Only checks if input files fulfill the contrains. Does not run the network!',
+                        action='store_true', required=False, default=False)                        
     return parser.parse_args()
 
-
+    # constrains are disabled if no-constrains is set.
 
 if __name__ == "__main__":
     args = get_args()
     run_network(args.inputdir, args.scenario, args.outputdir, args.debug_mode,
-                args.log_enabled, args.pcap_enabled, float(args.warmup), args.no_events)
+                args.log_enabled, args.pcap_enabled, float(args.warmup), args.no_constrains, args.no_events, args.check_inputs)

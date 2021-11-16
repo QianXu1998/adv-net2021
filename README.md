@@ -330,7 +330,8 @@ Use `-h` to see all the command line parammeters.
 ```bash
 usage: run.py [-h] [--inputdir INPUTDIR] [--scenario SCENARIO]
               [--warmup WARMUP] [--outputdir OUTPUTDIR] [--debug-mode]
-              [--log-enabled] [--pcap-enabled] [--no-events]
+              [--log-enabled] [--pcap-enabled] [--no-events] [--no-constrains]
+              [--check-inputs]
 
 optional arguments:
   -h, --help            show this help message and exit
@@ -346,6 +347,10 @@ optional arguments:
   --pcap-enabled        Enables pcap captures (not recommended)
   --no-events           Disables all link and traffic events. Useful for
                         debugging.
+  --no-constrains       Disables traffic and link constrains (only use for
+                        testing).
+  --check-inputs        Only checks if input files fulfill the contrains. Does
+                        not run the network!
 ```
 
 > :rotating_light: We do not recommend enabling pcap captures. It might have a big impact on the experiment's performance, and it could make your VM run out of hard disk very quickly. Thus, use with care! :rotating_light:

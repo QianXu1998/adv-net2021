@@ -65,16 +65,18 @@ def setRateToInt(size):
     magnitudes: Bbps, Kbps, Mbps and Gbps.
     """
     try:
-        conversions = {'Bps': 1, 'Kbps': 1e3, 'Mbps': 1e6, 'Gbps': 1e9}
+        conversions = {'bps': 1, 'kbps': 1e3, 'mbps': 1e6, 'gbps': 1e9}
 
         digits_list = "0123456789."
         digit = float("".join([x for x in size if x in digits_list]))
         magnitude = "".join([x for x in size if x not in digits_list])
-        magnitude = magnitude.upper()
+        magnitude = magnitude.lower()
         magnitude = conversions[magnitude]
         return int(magnitude*digit)
     except:
         print("Conversion Fail")
+        import traceback
+        traceback.print_exc()
         return 0
 
 
@@ -112,48 +114,41 @@ def udp_perf(sender_csv, receiver_csv):
 # =========================
 
 
-def tcp_perf(sender_csv, receiver_csv):
+def tcp_perf(sender_csv, *args):
     """Assess TCP flow performance.
 
     Args:
         sender_csv (str): Name of the sender .csv file
-        receiver_csv (str): Name of the receiver .csv file
 
     Returns:
         tuple: Flow Completion Rate, average delay and Flow Completion Time
     """
     # Open sender and receive .csv files
-    sender_s = pd.read_csv(sender_csv)['t_timestamp']
-    receiver_s = pd.read_csv(receiver_csv)['r_timestamp']
+    sender_s = pd.read_csv(sender_csv)['rtt']
 
     # Get tot_bytes
     tot_bytes = sender_s.pop(0)
-    # Get recv_bytes
-    recv_bytes = receiver_s.pop(len(receiver_s) - 1)
+    # Get unsent_bytes
+    unsent_bytes = sender_s.pop(len(sender_s))
+    # Get elapsed_time
+    elapsed_time = sender_s.pop(len(sender_s))
 
     # Reset index of sender_s
     sender_s.reset_index(drop=True, inplace=True)
 
-    # Get indexes of sender_s and receiver_s
-    send_index = sender_s.index
-    recv_index = receiver_s.index
+    # Compute average delay from average RTT
+    avg_rtt = sender_s.mean() / (10**6)
 
-    # Intestection of indexes to make sure we are considering only delivered data
-    common_index = send_index.intersection(recv_index)
-
-    # Compute average delay
-    avg_delay = (receiver_s[common_index] - sender_s[common_index]).mean()
-
-    # Compute packet reception ratio
-    fcr = recv_bytes / tot_bytes
+    # Compute flow completion ratio
+    fcr = 1 - (unsent_bytes / tot_bytes)
 
     # Compute flow completion time
     if fcr == 1:
-        fct = sender_s.iloc[-1] - sender_s.iloc[1]
+        fct = elapsed_time
     else:
         fct = None
 
-    return fcr, avg_delay, fct
+    return fcr, avg_rtt, fct
 
 
 def print_output_performances(outputdir):

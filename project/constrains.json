@@ -12,6 +12,7 @@
     "additional_traffic_constrains": {
         "min_start": 0,
         "max_time" : 60,
+        "min_duration": 1, 
         "max_traffic": "200MB", 
         "min_rate": "100Kbps",
         "max_rate": "10Mbps",
@@ -22,8 +23,12 @@
     "base_traffic_constrains": {
         "min_start": 0,
         "max_time" : 60,
-        "protocols": ["udp", "tcp"],
-        "port_range": [1, 60000], 
-        "max_flows": 1000
+        "min_duration": 1, 
+        "max_traffic": 0, 
+        "min_rate": "100Kbps",
+        "max_rate": "10Mbps",
+        "max_flows": 1000,
+        "protocols": ["udp", "tcp"], 
+        "port_range": [1, 60000]
     }
 }

@@ -4,13 +4,13 @@ import os, sys
 from advnet_utils.get_city_info import Delay
 from advnet_utils.monitoring import monitor_network
 from p4utils.utils.helper import load_topo
-from advnet_utils.utils import install_requirements, load_conf, uninstall_requirements, install_non_optimized_switch, install_optimized_switch, clean_dir
+from advnet_utils.utils import install_requirements, load_conf, uninstall_requirements, install_non_optimized_switch, install_optimized_switch, clean_dir, print_output_performances
 cur_dir = os.path.dirname(os.path.abspath(__file__)) + "/"
 
 # CLI
 # ==========
-def experiment_performance():
-    print("utility under development")
+def experiment_performance(outdir):
+    print_output_performances(outdir)
 
 def monitor(topo_path):
     """Start monitoring"""
@@ -73,4 +73,4 @@ if __name__ == "__main__":
             path = args[1]
             clean_dir(path)
         elif cmd == "experiment-performance":
-            experiment_performance()
+            experiment_performance("./outputs/")

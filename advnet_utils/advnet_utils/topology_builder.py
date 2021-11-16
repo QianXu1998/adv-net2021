@@ -1,16 +1,15 @@
 """Build base fixed topology"""
 # topology based on https://gitlab.ethz.ch/nsg/public/adv-net-2021-project
 from advnet_utils.network_API import AdvNetNetworkAPI
-from p4utils.mininetlib.log import info
+from p4utils.mininetlib.log import info, debug
 from advnet_utils.get_city_info import get_cities, get_city_short_name, Delay
 from advnet_utils.input_parsers import parse_links, parse_additional_links
 from networkx import Graph
 
 # we keep it as a constant.
 HOSTS_PER_SWITCH = 1
-
 # BASE TOPOLOGY
-
+QUEUE_SIZE = 100 #
 
 def build_base_topology(net: AdvNetNetworkAPI, topology_path: str) -> None:
     """Builds the basic topology from config files"""
@@ -40,7 +39,7 @@ def build_base_topology(net: AdvNetNetworkAPI, topology_path: str) -> None:
 
         # adds link params
         _delay = "{}ms".format(delay)
-        params = {"bw": float(bw), "delay": _delay}
+        params = {"bw": float(bw), "delay": _delay, "max_queue_size": QUEUE_SIZE} # TODO set the right value
         net.addLink(src, dst, **params)
 
 
@@ -86,10 +85,9 @@ def add_links_to_topology(net: AdvNetNetworkAPI, topology_path: str, links_file:
         else:
             delay = delays.get_delay(link[0], link[1])
             _delay = "{}ms".format(delay)
-            params = {"bw": float(bw), "delay": _delay}
-            #params = {"delay": _delay}
+            params = {"bw": float(bw), "delay": _delay, "max_queue_size": QUEUE_SIZE} # TODO set the right value
             net.addLink(link[0], link[1], **params)
             added_links.append((link))
-            info("Adding additional link: {}<->{}\n".format(*link))
+            debug("Adding additional link: {}<->{}\n".format(*link))
 
     return added_links
