@@ -436,9 +436,27 @@ see the delay of existing links, or links you want to add. For example:
 > The delay between BAR and BER is : 15.0ms
 ```
 
-### `./cli.py experiment-performance [path]`
+### `./cli.py experiment-performance [out-path]`
 
-> Will be released soon.
+Prints the individual performance of each flow. Separated by `udp` and `tcp`.
+
+```bash
+./cli.py experiment-performance ./outputs/
+
+Experiment performances: ./outputs/
+=====================================
+
+UDP Flows:
+==========
+BAR_h0:2000->PAR_h0:2001: (1.0, 0.014777948271004275)
+POR_h0:2000->BAR_h0:2001: (0.9992674887071176, 0.011501384844631412)
+
+
+TCP Flows:
+==========
+MUN_h0:5000->BER_h0:5001: (1.0, 0.061238904383429674, 10.334636449813845)
+LIS_h0:5000->MAN_h0:5001: (1.0, 0.09590330615164522, 10.45049524307251)
+```
 
 ## Performance evaluation
 

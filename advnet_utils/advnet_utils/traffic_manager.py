@@ -263,7 +263,7 @@ class TrafficManager(object):
                 flow["start_time"]
             # we start receivers at simulation t=0
             # start all receivers before reference time! 
-            receiver_start_time = self.reference_time - 1 # start receivers 5 sec before.
+            receiver_start_time = self.reference_time - 5 # start receivers 5 sec before.
             # assuming all receivers start at 0, we make duration ~65 sec.
             receivers_duration = self.experiment_duration + \
                 TrafficManager.SENDERS_DURATION_OFFSET
