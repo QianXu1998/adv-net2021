@@ -170,8 +170,8 @@ def print_output_performances(outputdir):
     tcp_flows = [x for x in output_files if "tcp" in x]
 
     # process udp flows
-    print("UDP Flows:")
-    print("==========")
+    print("UDP Flows: (Reception Rate, Delay)")
+    print("==================================")
     udp_senders = [x for x in udp_flows if "send" in x]
     for udp_sender in udp_senders:
         # get flow info
@@ -196,8 +196,8 @@ def print_output_performances(outputdir):
         ])
     print("\n")
     # process tcp flows
-    print("TCP Flows:")
-    print("==========")
+    print("TCP Flows: (Completion Rate, RTT, FCT)")
+    print("======================================")
     tcp_senders = [x for x in tcp_flows if "send" in x]
     for tcp_sender in tcp_senders:
         _str = tcp_sender.split("/")[-1]
@@ -337,7 +337,7 @@ def clean_dir(src_path):
 
 # Experiment Utils
 # ================
-def wait_experiment(start_time, experiment_length, receivers_wait_offset=10):
+def wait_experiment(start_time, experiment_length, outputdir, receivers_wait_offset=10):
     """Basic function to wait for the experiments to be run"""
     info("Scheduling Tasks...\n")
     info("===================\n\n")
@@ -350,3 +350,4 @@ def wait_experiment(start_time, experiment_length, receivers_wait_offset=10):
     time.sleep(receivers_wait_offset)
     info("Experiment done...\n")
     info("==================\n\n")
+    print_output_performances(outputdir)

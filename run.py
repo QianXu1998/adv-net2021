@@ -166,7 +166,7 @@ def run_network(inputdir, scenario, outputdir, debug_mode, log_enabled, pcap_ena
 
         # wait for experiment to finish
         if not debug_mode:
-            wait_experiment(simulation_time_reference, experiment_duration)
+            wait_experiment(simulation_time_reference, experiment_duration, outputdir, 10)
 
 # MAIN Runner
 # ===========

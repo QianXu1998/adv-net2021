@@ -438,7 +438,13 @@ see the delay of existing links, or links you want to add. For example:
 
 ### `./cli.py experiment-performance [out-path]`
 
-Prints the individual performance of each flow. Separated by `udp` and `tcp`.
+Prints the individual performance of each flow. Separated by `udp` and `tcp`. 
+
+For `UDP` traffic we measure the packet reception rate in percentage. A 1 means, 100% of the packets where received, whereas 0 means 0% reception rate. For the second parameter, we print the one way delay.
+
+For `TCP` traffic we measure three things. First the completion rate, which is the percentage of total received bytes. Second, the average flow RTT, and last, the flow completion time in seconds.
+
+Note, that congestion can heavyly increase the experienced delay by a flow. Each interface has been configured with a queue of 100 packets. Thus, at our very low sending rate 10Mbps, each 1500 bytes queued packet increases delay by 1.2 ms. Thus, if the queue builds up to 100 packets, delay will increase by 120ms!. 
 
 ```bash
 ./cli.py experiment-performance ./outputs/
@@ -446,14 +452,14 @@ Prints the individual performance of each flow. Separated by `udp` and `tcp`.
 Experiment performances: ./outputs/
 =====================================
 
-UDP Flows:
-==========
+UDP Flows: (Reception Rate, Delay)
+==================================
 BAR_h0:2000->PAR_h0:2001: (1.0, 0.014777948271004275)
 POR_h0:2000->BAR_h0:2001: (0.9992674887071176, 0.011501384844631412)
 
 
-TCP Flows:
-==========
+TCP Flows: (Completion Rate, RTT, FCT)
+======================================
 MUN_h0:5000->BER_h0:5001: (1.0, 0.061238904383429674, 10.334636449813845)
 LIS_h0:5000->MAN_h0:5001: (1.0, 0.09590330615164522, 10.45049524307251)
 ```
