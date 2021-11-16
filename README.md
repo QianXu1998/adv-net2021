@@ -41,7 +41,7 @@ On this page, you will find all key technical information about the AdvNet 2021 
 - [Utilities (./cli.py)](#utilities-clipy)
     - [`./cli.py clean [path]`](#clipy-clean-path)
     - [`./cli.py monitor`](#clipy-monitor)
-    - [`./cli.py set-opt-siwtch` and `./cli.py set-not-opt-siwtch`](#clipy-set-opt-siwtch-and-clipy-set-not-opt-siwtch)
+    - [`./cli.py set-opt-switch` and `./cli.py set-not-opt-switch`](#clipy-set-opt-siwtch-and-clipy-set-not-opt-siwtch)
     - [`./cli.py install-requirements [file]`](#clipy-install-requirements-file)
     - [`./cli.py get-delay [node1] [node2]`](#clipy-get-delay-node1-node2)
     - [`./cli.py experiment-performance [path]`](#clipy-experiment-performance-path)
@@ -116,7 +116,7 @@ In the project, each node in the Claranet topology (see above) is a single p4-en
 All links between switches have a fixed bandwidth of 10 Mbps.
 The link delay depends on the physical distance between cities; i.e., the farther apart cities are, the longer the delay of the link connecting them. The CLI provides a function (`./cli.py get-delay [node1] [node2]`) that returns the delay between any pair of switches (see below). Make sure you use this functionality when deciding which links to add to the topology.
 
-Furthermore, each switch is connected to one host, labeled e.g., `BAR_h0` for the host in Barcelona. These hosts send and receive traffic. There are controlled by us (i.e., you cannot program them). The links between switches and hosts have no bandwidth litmits and have no transmission delay. However, they still incur some small delay (~0.5ms).
+Furthermore, each switch is connected to one host, labeled e.g., `BAR_h0` for the host in Barcelona. These hosts send and receive traffic. There are controlled by us (i.e., you cannot program them). The links between switches and hosts have no bandwidth limits and have no transmission delay. However, they still incur some small delay (~0.5ms).
 
 As a general rule, we add `2.5ms` of delay for each 250km up to 2000km. Above 2000km, we set a fix delay of `25ms`.
 
@@ -213,7 +213,7 @@ You must specify an additional traffic (`<scenario>.traffic-additional`) file as
 - Start time and duration of the flows are integers (in seconds);
 - Minimal flow duration is 1 second;
 - Total number of Bytes sent over all flows is less than or equal 200 MB.\;
-- The minimum flow rate is 100 kbps;
+- The minimum flow rate is 100 Kbps;
 - The maximum flow rate is 10 Mbps;
 - The maximum number of flows overall is 1000 flows;
 - All flows are using ports in the range `[60001, 65000]`.
@@ -238,7 +238,7 @@ MAD,        FRA,        10
 You are free to specify these links as you wish, within the following constraints:
 
 - Only new links (i.e., you cannot duplicate an already existing link, such as `PAR--FRA`);
-- You can add a maxium of 3 links.
+- You can add a maximum of 3 links.
 - The bandwidth of each fixed is set to 10 Mbps.
 
 #### Failures
@@ -325,7 +325,7 @@ REN_h0 -> AMS_h0 BAR_h0 BER_h0 BRI_h0 EIN_h0 FRA_h0 GLO_h0 LIL_h0 LIS_h0 LON_h0 
 mininet>
 ```
 
-Use `-h` to see all the command line parammeters.
+Use `-h` to see all the command line parameters.
 
 ```bash
 usage: run.py [-h] [--inputdir INPUTDIR] [--scenario SCENARIO]
@@ -341,7 +341,7 @@ optional arguments:
   --outputdir OUTPUTDIR
                         Path were the experiment outputs will be saved. If it
                         exists, all content is erased
-  --debug-mode          Runs topology indefinetely and lets you access the
+  --debug-mode          Runs topology indefinitely and lets you access the
                         mininet cli
   --log-enabled         Enables logging
   --pcap-enabled        Enables pcap captures (not recommended)
@@ -349,7 +349,7 @@ optional arguments:
                         debugging.
   --no-constrains       Disables traffic and link constrains (only use for
                         testing).
-  --check-inputs        Only checks if input files fulfill the contrains. Does
+  --check-inputs        Only checks if input files fulfill the constrains. Does
                         not run the network!
 ```
 
@@ -436,15 +436,15 @@ see the delay of existing links, or links you want to add. For example:
 > The delay between BAR and BER is : 15.0ms
 ```
 
-### `./cli.py experiment-performance [out-path]`
+### `./cli.py experiment-performance [out-dir]`
+
+>  Note that in the latest version, the experiment performance will automatically be displayed at the end of your run (unless you run with `--debug-mode` flag)
 
 Prints the individual performance of each flow. Separated by `udp` and `tcp`. 
 
 For `UDP` traffic we measure the packet reception rate in percentage. A 1 means, 100% of the packets where received, whereas 0 means 0% reception rate. For the second parameter, we print the one way delay.
 
 For `TCP` traffic we measure three things. First the completion rate, which is the percentage of total received bytes. Second, the average flow RTT, and last, the flow completion time in seconds.
-
-Note, that congestion can heavyly increase the experienced delay by a flow. Each interface has been configured with a queue of 100 packets. Thus, at our very low sending rate 10Mbps, each 1500 bytes queued packet increases delay by 1.2 ms. Thus, if the queue builds up to 100 packets, delay will increase by 120ms!. 
 
 ```bash
 ./cli.py experiment-performance ./outputs/
@@ -503,6 +503,50 @@ The list of SLA to satisfy will be added shortly.
 
 ## Frequently Asked Questions (FAQs)
 
-During the next 7 weeks we will compile the most frequently asked questions in
-`Teams` and during the exercise sessions and write them down here. 
+#### What am I allowed to have in the controller?
 
+You are allowed to run anything in the controller as long as you only interact with the network as follows:
+
+* Configure switches through the controller API.
+* Receive Packets from the switch.
+* Send additional packets to the switch. 
+
+Thus you can not do things like:
+
+* Run commands that might modify the state or configuration of the network.
+* Run commands that allow you to monitor the state of the network. For example, continuously checking which interfaces are `up` to detect link failures is not allowed. 
+* You can not receive real traffic from one switch and send it to another. For
+  example, `BAR` sends packets to the controller, and the controller injects
+  them to another switch to bypass the network.
+
+
+#### How to understand the output of `./cli.py experiment-performance [output-dir]`
+
+You can find a detailed explanation [above](#clipy-experiment-performance-out-path). 
+
+#### Is there a way to get topology link delays other than using the `cli`
+
+Yes, you can use the `Delay` class of [get_city_info.py](advnet_utils/advnet_utils/get_city_info.py). For example in your controller you can do:
+
+```python
+from advnet_utils.get_city_info import Delay
+_delay = Delay(<path to project folder>) # infrastructure/project/
+delay = _delay.get_delay("BAR", "PAR")
+```
+
+> The project folder, is not the infrastructure folder itself, but the folder called `project` inside `/home/p4/infrastructure`
+
+> Note this returns the delay of a directly connected link. The delay with multiple hops is the sum of the individual delays + queueing times + switch processing time.
+
+#### How come my delay/rtt is higher than expected? (IMPORTANT)
+
+The delay we set to each link represents only the propagation delay (time for a signal to propagate through the media usually a bit lower than speed of light).
+
+To that you need to sum three more things:
+* `Processing delay`: the time it takes for your software switch to process the packet. And since we are using a software switch, the more complex the code is the more time it will take.
+* `Transmission delay`: time it takes to push a packet into the link. In our case, this is not negligible. To transmit a 1500 bytes packet at 10Mbps we need `1.2ms`((1500*8)/10000000).
+* `Queueing delay`: the time a packet spends in the interface queues. We have set interface queues to 100 packets. That means, that for every packet of 1500 in the queue, packets experience an extra 1.2ms of delay. If the queue is completely full (under heavy congestion) the queueing delay will be `120ms`!.
+
+As you can see, queueing delay plays a huge role in the total delay your traffic might experience. Therefore, when having to optimize for delay/rtt make sure your queues don't build up. For example, if you send 2 `udp` flows to the same link, and their total bandwidth accounts for more than 10Mbps, unless you start dropping something, the queue will eventually get full and all packets will experience an additional 120ms delay.
+
+Furthermore, and also interestingly, you can observe, that by sending a single `tcp` flow, queues will build for some packets. This is due to how `tcp` works. If there is no congestion in the network, once a flow reaches a sending rate of `10Mbps` it continues growing, that makes the queue to grow and delay increases until there is a drop and `tcp` slows down.
