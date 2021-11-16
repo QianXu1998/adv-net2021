@@ -503,7 +503,7 @@ The list of SLA to satisfy will be added shortly.
 
 ## Frequently Asked Questions (FAQs)
 
-#### What am I allowed to have in the controller?
+#### What am I allowed to do in the controller?
 
 You are allowed to run anything in the controller as long as you only interact with the network as follows:
 
