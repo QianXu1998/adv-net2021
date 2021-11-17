@@ -25,8 +25,8 @@ def run_controllers(net: AdvNetNetworkAPI, inputidr, scenario: str, log_enabled:
 
     The global controller must be called: controller.py Per switch controllers
     must be called: <switch_name>-controller.py. For example: BAR-controller.py
-
     """
+
     # path to base traffic
     base_traffic_file = inputidr + "/inputs/{}.traffic-base".format(scenario)
     # path
@@ -167,6 +167,9 @@ def run_network(inputdir, scenario, outputdir, debug_mode, log_enabled, pcap_ena
         # wait for experiment to finish
         if not debug_mode:
             wait_experiment(simulation_time_reference, experiment_duration, outputdir, 10)
+    
+    # change output dir rights since all has been written with root
+    os.system("chown -R {}:{} {}".format(_user, _user, outputdir))
 
 # MAIN Runner
 # ===========

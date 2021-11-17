@@ -63,7 +63,7 @@ if __name__ == "__main__":
             delay = _delay.get_delay(node1, node2)
             print("The delay between {} and {} is : {}ms".format(node1, node2, delay))
         elif cmd == "monitor":
-            _topo_path = cur_dir + "topology.json"
+            _topo_path = "/tmp/topology.json"
             monitor(_topo_path)
         elif cmd == "set-opt-switch":
             install_optimized_switch()
@@ -73,4 +73,8 @@ if __name__ == "__main__":
             path = args[1]
             clean_dir(path)
         elif cmd == "experiment-performance":
-            experiment_performance("./outputs/")
+            # default output dir
+            _output_dir = "./outputs"
+            if len(args) > 1:
+                _output_dir = args[1]
+            experiment_performance(_output_dir)

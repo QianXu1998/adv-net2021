@@ -522,7 +522,7 @@ Thus you can not do things like:
 
 #### How to understand the output of `./cli.py experiment-performance [output-dir]`
 
-You can find a detailed explanation [above](#clipy-experiment-performance-out-path). 
+You can find a detailed explanation [above](#clipy-experiment-performance-out-dir). 
 
 #### Is there a way to get topology link delays other than using the `cli`
 

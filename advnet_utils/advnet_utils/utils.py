@@ -128,25 +128,28 @@ def tcp_perf(sender_csv, *args):
 
     # Get tot_bytes
     tot_bytes = sender_s.pop(0)
-    # Get unsent_bytes
-    unsent_bytes = sender_s.pop(len(sender_s))
-    # Get elapsed_time
-    elapsed_time = sender_s.pop(len(sender_s))
 
-    # Reset index of sender_s
-    sender_s.reset_index(drop=True, inplace=True)
+    fcr, avg_rtt, fct = (0, None, None)
+    if not sender_s.empty:
+        # Get unsent_bytes
+        unsent_bytes = sender_s.pop(len(sender_s))
+        # Get elapsed_time
+        elapsed_time = sender_s.pop(len(sender_s))
 
-    # Compute average delay from average RTT
-    avg_rtt = sender_s.mean() / (10**6)
+        # Reset index of sender_s
+        sender_s.reset_index(drop=True, inplace=True)
 
-    # Compute flow completion ratio
-    fcr = 1 - (unsent_bytes / tot_bytes)
+        # Compute average delay from average RTT
+        avg_rtt = sender_s.mean() / (10**6)
 
-    # Compute flow completion time
-    if fcr == 1:
-        fct = elapsed_time
-    else:
-        fct = None
+        # Compute flow completion ratio
+        fcr = 1 - (unsent_bytes / tot_bytes)
+
+        # Compute flow completion time
+        if fcr == 1:
+            fct = elapsed_time
+        else:
+            fct = None
 
     return fcr, avg_rtt, fct
 
