@@ -22,7 +22,7 @@ On this page, you will find all key technical information about the AdvNet 2021 
 
 ---
 
-<!-- TOC depthTo:4 -->
+<!-- TOC depthTo:3 -->
 
 - [Overview](#overview)
 - [Timeline](#timeline)
@@ -31,9 +31,6 @@ On this page, you will find all key technical information about the AdvNet 2021 
     - [P4 code](#p4-code)
     - [Controller](#controller)
     - [Inputs](#inputs)
-        - [Traffic](#traffic)
-        - [Links](#links)
-        - [Failures](#failures)
     - [Submitting your inputs](#submitting-your-inputs)
 - [Running the simulation](#running-the-simulation)
     - [Network runner](#network-runner)
@@ -41,10 +38,10 @@ On this page, you will find all key technical information about the AdvNet 2021 
 - [Utilities (./cli.py)](#utilities-clipy)
     - [`./cli.py clean [path]`](#clipy-clean-path)
     - [`./cli.py monitor`](#clipy-monitor)
-    - [`./cli.py set-opt-switch` and `./cli.py set-not-opt-switch`](#clipy-set-opt-siwtch-and-clipy-set-not-opt-siwtch)
+    - [`./cli.py set-opt-switch` and `./cli.py set-not-opt-switch`](#clipy-set-opt-switch-and-clipy-set-not-opt-switch)
     - [`./cli.py install-requirements [file]`](#clipy-install-requirements-file)
     - [`./cli.py get-delay [node1] [node2]`](#clipy-get-delay-node1-node2)
-    - [`./cli.py experiment-performance [path]`](#clipy-experiment-performance-path)
+    - [`./cli.py experiment-performance [out-dir]`](#clipy-experiment-performance-out-dir)
 - [Performance evaluation](#performance-evaluation)
 - [Getting started](#getting-started)
 - [Frequently Asked Questions (FAQs)](#frequently-asked-questions-faqs)
@@ -85,7 +82,7 @@ The network performance is measured as its ability to meet a number of service-l
 Ultimately, all groups will be assessed on the same set of 1-minute long scenarios. Each scenario is defined by:
 
 - The group's additional links (i.e., each group uses its own link configuration);
-- The base traffic (that we will provide);
+- The base traffic (that e will provide);
 - One additional traffic, picked randomly among all the groups' configuration;
 - One failure scenario, picked randomly among all the groups' configuration.
 
@@ -100,12 +97,14 @@ The different SLAs and project features (additional links, additional traffic, f
 
 The most important dates are summarized below:
 
-- :white_check_mark: Week 8, Tue. Project starts - VMs are available
-- Week 9, Tue **(tentative)**. All features available, and SLAs disclosed
-- Week 10, Sun. Groups submit their traffic and failure configurations
-- Week 13, Fri. Groups submit their link configuration and switch programs
-- Week 14, Mon. Poster deadline
-- Week 14, Tue. Final presentation, disclosure of the competition results
+|||||
+|---|---|---|---|
+| ✅ |Week 8. | Tue, Nov.9 | Project starts - VMs are available|
+|  |Week 9. | Fri, Nov.19 **(tentative)** | All features available, and SLAs disclosed|
+|  |Week 12.| Sun. Dec.12 **(changed!)**| Groups submit their traffic and failure configurations|
+|  |Week 13.| Fri. Dec.17 | Groups submit their link configuration and switch programs|
+|  |Week 14.| Mon. Dec.20 | Poster deadline|
+|  |Week 14.| Tue. Dec.21 | Final presentation, disclosure of the competition results|
 
 > The last exercise will take place on week 8. For the remaining weeks, the exercise sessions will be used as "project time" where teaching assistants will be available for technical support.
 
@@ -502,6 +501,23 @@ To get started, log in your project VM, clone your GitLab repository, and you ar
 The list of SLA to satisfy will be added shortly.
 
 ## Frequently Asked Questions (FAQs)
+
+#### How to run the project on my own machine?
+
+Some of you asked for a way to work in parallel during the project. To make that easier, we have uploaded a VirtualBox Virtual Disk Image. You can download it here:
+
+- URL: https://polybox.ethz.ch/index.php/s/IHVIURpTts4kF8C 
+- Password : `adv-net-2021`
+
+For this to work you must use VirtualBox (try to update to the latest version, I had problems until I did that). To set up the VM, do the following:
+
+- Create a new VM
+- Go to expert mode
+- Name it, select type Linux and version Ubuntu 64 bits
+- Set memory (at least 4GB)
+- For hard disk, use an existing virtual hard disk file. Here select the disk image you downloaded.
+
+The VM user and password are both `p4`.
 
 #### What am I allowed to do in the controller?
 
