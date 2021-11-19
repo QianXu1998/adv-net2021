@@ -121,7 +121,7 @@ As a general rule, we add `2.5ms` of delay for each 250km up to 2000km. Above 20
 
 |Link type|Bandwidth|Delay|
 |---|---|---|
-|Switch-Switch|10Mbps|Depends on distance; use: `./cli.py get_delay BAR MAD`|
+|Switch-Switch|10Mbps|Depends on distance; use: `./cli.py get-delay BAR MAD`|
 |Host-Switch|No Limit|~0ms|
 
 
@@ -182,6 +182,8 @@ Each scenario is defined by 4 inputs, found in the `inputs` directory:
 - `<scenario>.traffic-additional`: Additional traffic that you specify, defined as fixed-rate UDP flows to be sent between chosen hosts for a given amount of time.
 - `<scenario>.links`: Additional links that you can add to your topology.
 - `<scenario>.failure`: Network failures that you specify, defined as failure start time and duration for specific links.
+- **(NEW)** `<scenario>.slas`: Service Level Agreements (SLAs) that your network must fulfill.
+
 
 > :rotating_light: __Important__ :rotating_light:  
 The `test.traffic-base` file that we pushed in your GitLab repository _is not_ the final base traffic that will be used in the competition. The final base traffic will be released shortly. 
@@ -262,6 +264,23 @@ You must specify a failure file as input for the evaluation scenario. You are fr
 - The total duration of all failures is at most 30 seconds.
 
 > Note: to know if your failure scenario disconnects the network you can simply run it. If the scenario is not valid you will get an error message indicating so.
+
+#### SLAs
+
+ **(NEW)** 
+
+The SLAs are defined using a `csv` file with the following format.
+```
+id        , src   , dst   , sport      , dport      , protocol, type, target
+prr_0     , *     , *     , *          , *          , *  , prr   , 50
+fct_0     , BAR_h0, MAD_h0, 5000--*    , 5000--5010 , tcp, fct   , 1000
+delay_0   , BAR_h0, MAD_h0,    *--5001 , 5010--5020 , udp, delay , 50
+rtt_0     , BAR_h0, *     , 5000--5010 , 5000--5010 , tcp, rtt   , 100
+wp_0      , BAR_h0, MAD_h0, 5001--5010 , 5000--5010 , *  , wp    , PAR
+```
+
+where `*` signifies a wildcard. Ports may be specified as concrete values, e.g.
+`5000` or `*`; or ranges (wildcards possible), like `5000--5010` pr `5000--*`.
 
 ### Submitting your inputs
 
@@ -437,31 +456,39 @@ see the delay of existing links, or links you want to add. For example:
 
 ### `./cli.py experiment-performance [out-dir]`
 
->  Note that in the latest version, the experiment performance will automatically be displayed at the end of your run (unless you run with `--debug-mode` flag)
-
 Prints the individual performance of each flow. Separated by `udp` and `tcp`. 
 
-For `UDP` traffic we measure the packet reception rate in percentage. A 1 means, 100% of the packets where received, whereas 0 means 0% reception rate. For the second parameter, we print the one way delay.
+For `UDP` traffic we measure the packet reception rate in percentage. A 1 means, 100% of the packets where received, whereas 0 means 0% reception rate. For the second parameter, we print the average one way delay. Finally, in the third column, you will find the waypoint rate. The waypoint rate, is the fraction of packets that have been received and have crossed the waypoint switch. If the flow does not have any waypoint rule, we simply display `-`.
 
 For `TCP` traffic we measure three things. First the completion rate, which is the percentage of total received bytes. Second, the average flow RTT, and last, the flow completion time in seconds.
 
 ```bash
 ./cli.py experiment-performance ./outputs/
 
-Experiment performances: ./outputs/
-=====================================
+----------------------------------
+Experiment performance: ./outputs/
+----------------------------------
 
-UDP Flows: (Reception Rate, Delay)
-==================================
-BAR_h0:2000->PAR_h0:2001: (1.0, 0.014777948271004275)
-POR_h0:2000->BAR_h0:2001: (0.9992674887071176, 0.011501384844631412)
+-----------------------------------------------------------------------------------
+UDP Flow                            Reception Rate    Avg Delay     Waypoint Rate
+-----------------------------------------------------------------------------------
+BAR_h0  MAD_h0   60001 60001             1.0            0.0055            -
+BAR_h0  MAD_h0    3000  3000             1.0            0.0055           0.0
+BAR_h0  MAD_h0     500    10             1.0            0.0054           0.0
+AMS_h0  MUN_h0    1000  1000             1.0            0.0056           1.0
+POR_h0  BAR_h0     200    50             1.0            0.0108           1.0
+BAR_h0  MAD_h0    5002  5003             1.0            0.0054           0.0
+BAR_h0  MAD_h0     501    11             1.0            0.0055           0.0
 
-
-TCP Flows: (Completion Rate, RTT, FCT)
-======================================
-MUN_h0:5000->BER_h0:5001: (1.0, 0.061238904383429674, 10.334636449813845)
-LIS_h0:5000->MAN_h0:5001: (1.0, 0.09590330615164522, 10.45049524307251)
+-----------------------------------------------------------------------------------
+TCP Flow                           Completion Rate     Avg RTT           FCT
+-----------------------------------------------------------------------------------
+LIS_h0  POR_h0    5000  5001             1.0            0.038          0.900295
 ```
+
+>  Note that in the latest version, the experiment performance will automatically be displayed at the end of your run (unless you run with `--debug-mode` flag).
+
+> Note if you run in `--debug-mode` make sure you stop the network before you check the performances. Some files are only flushed when the network is stopped. If not, the tool might report incomplete results.
 
 ## Performance evaluation
 
@@ -471,10 +498,7 @@ In each run of the simulation, we collect various information (delay, packet rec
 
 <!-- The simulation directly outputs which SLAs your network satisfies. -->
 
-The SLA to satisfied are listed in `/project/SLA.txt` formatted as follows:
-
-> Will be added soon. You can already get started with the first and simplest SLA: 
-> - At least 50% of all packets sent must be successfully received.
+The SLA to satisfied are listed ~~in `/project/SLA.txt`~~ in `/inputs/<scenario>.slas`. See [SLAs](#slas) for the SLA formatting.
 
 In the final evaluation, the networks of the different groups will be compared based on the number of SLA they satisfy; each SLA satisfied collects points, but satisfying "harder" SLAs brings more points, where "hard" is defined by the number of groups that failed to meet a specific SLA. More concretely, the number of points `p` given by satisfying SLA `s` is:
 
