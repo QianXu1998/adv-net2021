@@ -3,6 +3,7 @@
 import time
 
 from p4utils.mininetlib.network_API import NetworkAPI
+from p4utils.utils.helper import load_topo, run_command
 from p4utils.utils.task_scheduler import Task, TaskClient
 from p4utils.mininetlib.log import setLogLevel, debug, info, output, warning, error
 
@@ -28,6 +29,12 @@ class AdvNetNetworkAPI(NetworkAPI):
         tasks (:py:class:`dict`)                    : dictionary containing scheduled tasks.
     """
 
+    def __init__(self, *args, **params):
+        super().__init__(*args, **params)
+
+        self.waypoint_output = ""
+        self.waypoint_switches = []
+
     def distribute_tasks(self):
         """Distributes all the tasks to the schedulers.
 
@@ -49,3 +56,86 @@ class AdvNetNetworkAPI(NetworkAPI):
 
         # Remove all the tasks once they are sent
         self.tasks = {}
+
+    def configure_waypoint_captures(self, outputdir, switches):
+        """Stores parameters that will be used by the set_waypoint filters function"""
+        self.waypoint_output = outputdir
+        self.waypoint_switches = switches
+
+    def set_waypoint_filters(self, snapshot_length=250):
+        """Sets the tcpdump filter for the waypointing"""
+        
+        topo = load_topo("/tmp/topology.json")
+        # for every switch we set a filter for all interfaces
+        for switch in topo.get_p4switches().keys():
+            # if there is no waypoint rule we do not even monitor this switch
+            if switch not in self.waypoint_switches:
+                continue
+            # get id, we use this for the pcap filter == tos
+            switch_id = topo.get_p4switch_id(switch)
+            # get all the interfaces that connect to P4 switch
+            # I believe we do not need to capture node interfaces
+            interfaces = []
+            for neighbor in topo.get_p4switches_connected_to(switch):
+                interfaces.append(topo.get_intfs()[switch][neighbor]["intfName"])
+
+            for interface in interfaces:
+                cmd = "tcpdump -i {} -s {} --direction=in -w {} ip[1]=={} > /dev/null 2>&1 &".format(interface, snapshot_length, self.waypoint_output + "/" + interface + ".pcap", switch_id)
+                run_command(cmd)
+
+    def startNetwork(self):
+        """Starts and configures the network."""
+        debug('Cleanup old files and processes...\n')
+        self.cleanup()
+
+        debug('Auto configuration of not configured interfaces...\n')
+        self.auto_assignment()
+        
+        info('Compiling P4 files...\n')
+        self.compile()
+        output('P4 Files compiled!\n')
+
+        self.printPortMapping()
+
+        info('Creating network...\n')
+        self.net = self.module('net', topo=self, controller=None)
+        output('Network created!\n')
+
+        info('Starting network...\n')
+        self.net.start()
+        output('Network started!\n')
+
+        info('Starting schedulers...\n')
+        self.start_schedulers()
+        output('Schedulers started correctly!\n')
+
+        info('Saving topology to disk...\n')
+        self.save_topology()
+        output('Topology saved to disk!\n')
+
+        info('Add waypointing filters...\n')
+        self.set_waypoint_filters()
+        output('Waypointing filters added!\n')
+
+        info('Programming switches...\n')
+        self.program_switches()
+        output('Switches programmed correctly!\n')
+
+        info('Programming hosts...\n')
+        self.program_hosts()
+        output('Hosts programmed correctly!\n')
+        
+        info('Executing scripts...\n')
+        self.exec_scripts()
+        output('All scripts executed correctly!\n')
+
+        info('Distributing tasks...\n')
+        self.distribute_tasks()
+        output('All tasks distributed correctly!\n')
+
+        if self.cli_enabled:
+            self.start_net_cli()
+            # Stop right after the CLI is exited
+            info('Stopping network...\n')
+            self.net.stop()
+            output('Network stopped!\n')

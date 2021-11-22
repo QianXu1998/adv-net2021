@@ -20,14 +20,18 @@ where `*` signifies a wildcard. Ports may be specified as concrete values, e.g.
 The result file expects the following columns: (rows are examples)
 
 ```
-src,dst,sport,dport,protocol,prr,delay,rtt,fct
-BAR_h0,MAN_h0,5001,5001,udp,0.9993718592964824,0.11126276114539932,,
-BAR_h0,LIS_h0,5002,5001,udp,0.9996859296482412,0.13034784026090507,,
-BAR_h0,MAD_h0,5000,5001,udp,1.0,0.005361837320890858,,
-BAR_h0,LIS_h0,5002,5001,tcp,1.0,,0.11918598712533886,1.4580504894256592
-BAR_h0,MAD_h0,5000,5001,tcp,1.0,,0.058674282065072164,1.6607413291931152
-BAR_h0,MAN_h0,5001,5001,tcp,1.0,,0.1586788899701006,1.9901399612426758
+src,dst,sport,dport,protocol,prr,delay,rtt,fct,wpr
+BAR_h0,MAN_h0,5001,5001,udp,0.9993718592964824,0.11126276114539932,,,
+BAR_h0,LIS_h0,5002,5001,udp,0.9996859296482412,0.13034784026090507,,,
+BAR_h0,MAD_h0,5000,5001,udp,1.0,0.005361837320890858,,,
+BAR_h0,LIS_h0,5002,5001,tcp,1.0,,0.11918598712533886,1.4580504894256592,
+BAR_h0,MAD_h0,5000,5001,tcp,1.0,,0.058674282065072164,1.6607413291931152,
+BAR_h0,MAN_h0,5001,5001,tcp,1.0,,0.1586788899701006,1.9901399612426758,
 ```
+
+If udp flows do not receive at least one packet, delay is empty.
+If tcp flows do not complete at all, fct is empty.
+If tcp flows do not have at least one packet per direction, rtt is empty.
 
 
 # Output file
@@ -50,31 +54,29 @@ SLA is satisfied overall.
 # Adding new SLAs
 
 To add addictional SLAs, simply subclass the SLA baseclass and specify the
-`TYPE` as well as the `update` method.
-The type determines for which SLA this class will be used, and update is called
-for every row in the result file. The update should update (hence the name)
-the current SLA value and whether it is satisfied.
+`update` method (the SLA baseclass implements matching already).
+The update should update (hence the name) the current SLA value and whether it
+is satisfied.
+Note that the update method is only called for matching flows.
 
 ```
 class MySLA(SLA):
-    TYPE = "slatype"
-
     def update(self, result):
-        self.value = "new"
-        self.satisfied = True
+        self.value = "new"                       # Update value.
+        self.satisfied = (self.value == "new")   # Check if still satisfied.
 ```
 
-The SLA base class takes care of only considering the relevant flows, you can
-assume that update is only called for flows that the SLA applies to.
+Finally, update the `make_sla` function. This function instantiates the
+appropriate SLA for the given SLA type.
 """
 
 import csv
-import typing
 import os
+import typing
 
 
-# Main function.
-# ==============
+# Main functions.
+# ===============
 
 def check_slas(sla_file: os.PathLike,
                result_file: os.PathLike,
@@ -83,7 +85,7 @@ def check_slas(sla_file: os.PathLike,
     """Load SLAs and check results, writing to output file."""
     with open(sla_file, "r", newline='') as slafile:
         reader = csv.DictReader(cleanfile(slafile))
-        slas = [SLA.make(row) for row in reader]
+        slas = [make_sla(specification) for specification in reader]
 
     assert slas, "No SLAs specified!"
 
@@ -105,6 +107,27 @@ def check_slas(sla_file: os.PathLike,
     return results
 
 
+def make_sla(specification: dict):
+    """Instantiate an SLA object for the provided specification.
+
+    To add new SLA types, add them here!
+    """
+    sla_type = specification['type']
+
+    if sla_type == "prr":
+        return AboveThresholdSLA("prr", specification)
+    elif sla_type == "fct":
+        return BelowThresholdSLA("fct", specification)
+    elif sla_type == "delay":
+        return BelowThresholdSLA("delay", specification)
+    elif sla_type == "rtt":
+        return BelowThresholdSLA("rtt", specification)
+    elif sla_type == "wp":
+        return WaypointSLA(specification)
+    else:
+        raise ValueError(f"Type `{sla_type}` does not match any SLA.")
+
+
 # SLA classes.
 # ============
 
@@ -112,27 +135,23 @@ formattype = typing.TypeVar('formattype')
 
 
 class SLA:
-    """Service level agreement."""
-    TYPE = None
+    """Service level agreement.
+
+    The SLA has three main methods:
+    - match: Based on specificiton, check if SLA applies to a result.
+    - update: Update SLA and check if it is satisfied.
+    - update_if_match: First check it match, then update, do nothing otherwise.
+
+    This class already implements matching flows, so subclasses typically
+    only need to impement `update`.
+    """
     RANGE_SEPARATOR = '--'
     WILDCARD = "*"
 
-    @classmethod
-    def make(cls, specification):
-        """Find and init a SLA subclass for the specified type (recursively)."""
-        if cls.TYPE == specification['type']:
-            return cls(specification)
-        for subclass in cls.__subclasses__():
-            result = subclass.make(specification)
-            if result is not None:
-                return result
-        return None
-
     def __init__(self, specification):
         # Parse specification.
-        if self.TYPE is not None:
-            assert specification['type'] == self.TYPE
         self.id = specification['id']
+        self.type = specification['type']
         self.target = specification['target']
 
         self.protocol = self._format(specification['protocol'], str)
@@ -142,7 +161,7 @@ class SLA:
         self.dport = self._parse_port(specification['dport'])
 
         self.matches = 0  # How many flows were matched.
-        self.value = ""
+        self.value = None
         self.satisfied = False
 
     def _parse_port(self, port: str):
@@ -158,87 +177,107 @@ class SLA:
         return None if value == self.WILDCARD else formatter(value)
 
     def update_if_match(self, result: typing.Dict[str, str]):
-        """If a ."""
+        """If the result matches the specification, call update."""
         if self.match(result):
             self.matches += 1
             self.update(result)
 
     def match(self, result):
-        """Return True if flow matches the spec."""
+        """Return True if flow matches the spec.
+
+        (Return False if any constraint is violated)
+        """
+        # Check protocol.
         if self.protocol is not None and (result['protocol'] != self.protocol):
             return False
+        # Check source and destination label.
         for (own, key) in ((self.src, 'src'), (self.dst, 'dst')):
             if (own is not None) and result[key] != own:
                 return False
+        # Check source and destination port ranges.
         for ((lo, hi), key) in ((self.sport, 'sport'), (self.dport, 'dport')):
             value = int(result[key])
             if (lo is not None) and (value < lo):
                 return False
             if (hi is not None) and (value > hi):
                 return False
+        # No constraint was violated; the result matches!
         return True
 
     @property
     def result(self) -> dict:
-        """Return a formatted result."""
+        """Return formatted result."""
         return {
             "id": self.id,
-            "type": self.TYPE,
+            "type": self.type,
             "target": self.target,
-            "value": self.value,
+            "value": "" if self.value is None else self.value,
             "matches": self.matches,
             "statisfied": self.satisfied,
         }
 
     def update(self, result: typing.Dict[str, str]):
         """Return the SLA value and whether the SLA is satisfied."""
-        raise NotImplementedError
+        raise NotImplementedError  # Implement in sub-classes.
 
 
-class ThresholdSLA(SLA):
-    """Require a value below a threshold."""
-    FIELD = ""
+class BelowThresholdSLA(SLA):
+    """A generic SLA for a value that is required to be below a threshold.
 
-    def __init__(self, specification):
+    Initialize this SLA with the specification and with the result with to
+    track, e.g. TresholdSLA('prr', specification) to create an SLA that
+    tracks the packet reception rate (prr).
+
+    The specificaiton is parsed to check which flows are matched and to get
+    the required target value for the SLA.
+    """
+
+    def __init__(self, field: str, specification: dict):
         super().__init__(specification)
+        self.field = field
         self.target = float(self.target)
-        self.value = -float("inf")  # Overwritten in first update.
 
     def update(self, result: typing.Dict[str, str]):
-        value = float(result[self.FIELD])
-        self.value = max(self.value, value)
+        """Update threshold.
+
+        Get `field` from the current result, remember it if it's above the
+        current value (remember largest/worst value).
+        The SLA is specified as long as the current value is below target.
+
+        If the value is missing because to many packets were lost, the
+        SLA automatically fails (missing value is replaced by infinity).
+        """
+        str_value = result[self.field]
+        value = float(str_value) if str_value else float("inf")
+        self.value = value if self.value is None else max(self.value, value)
         self.satisfied = self.value <= self.target
 
 
-class PacketReceptionRate(ThresholdSLA):
-    """Require PRR below target for all flows."""
-    TYPE = "prr"
-    FIELD = "prr"
-
-
-class FlowCompletionTime(ThresholdSLA):
-    """Require flow completion time lower than target for all flows."""
-    TYPE = 'fct'
-    FIELD = "fct"
-
-
-class Delay(ThresholdSLA):
-    """Require delay lower than target for all flows."""
-    TYPE = "delay"
-    FIELD = "delay"
-
-
-class RoundtripTime(ThresholdSLA):
-    """Require rtt lower than target for all flows."""
-    TYPE = "rtt"
-    FIELD = "rtt"
-
-
-class Waypoint(SLA):
-    TYPE = 'wp'
+class AboveThresholdSLA(BelowThresholdSLA):
+    """Same as BelowThresholdSLA, but requires value above threshold"""
 
     def update(self, result: typing.Dict[str, str]):
-        raise NotImplementedError("Cannot veriy waypoint yet.")
+        """Remember minimum value, satisfied if still above threshold.
+
+        See BelowThresholdSLA for details.
+        """
+        str_value = result[self.field]
+        value = float(str_value) if str_value else float("-inf")
+        self.value = value if self.value is None else min(self.value, value)
+        self.satisfied = self.value >= self.target
+
+
+class WaypointSLA(SLA):
+    """For waypoints, the results contain a waypoint ratio wpr.
+
+    The SLA is satisfied, if the wpr is 1.0 for all flows.
+    """
+
+    def update(self, result: typing.Dict[str, str]):
+        """Remember min wpr; satisfied if it equals 1.0."""
+        value = float(result["wpr"])
+        self.value = value if self.value is None else min(self.value, value)
+        self.satisfied = self.value == 1.0
 
 
 # Helper functions.

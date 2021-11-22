@@ -1,6 +1,6 @@
 """Parsers for different input files"""
-
 import csv
+from advnet_utils.sla import cleanfile
 
 
 def _get_lines_and_clean(lines):
@@ -71,3 +71,11 @@ def parse_traffic(traffic_file):
         row["start_time"] = float(row["start_time"])
         flows.append(row)
     return flows
+
+
+def parse_waypoint_slas(slas_file):
+    """Loads waypoints slas"""
+    with open(slas_file, "r", newline='') as slafile:
+        reader = csv.DictReader(cleanfile(slafile))
+        slas = [row for row in reader if row['type'] == 'wp']
+    return slas

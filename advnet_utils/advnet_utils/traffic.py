@@ -22,7 +22,8 @@ UDP_MAX_BURST_SIZE = 1
 
 # https://www.man7.org/linux/man-pages/man7/socket.7.html
 # Default value is 212992
-TCP_BUFFER_SIZE = 212992*2
+TCP_BUFFER_SIZE = int(212992*1.5)
+UDP_BUFFER_SIZE = int(212992*1.5)
 
 # /usr/include/linux/tcp.h
 TCP_INFO = [
@@ -129,7 +130,7 @@ def send_udp_flow(dst='127.0.0.1',
     assert isinstance(dport, int) and dport > 0 and dport < 2**16 # Check valid port number
     assert isinstance(tos, int) and tos >= 0 and tos < 2**8 # Check valid ToS value
     assert (isinstance(duration, float) or isinstance(duration, int)) and duration >= 0 # Duration must be positive
-    assert isinstance(payload_size, int) and payload_size > 0 and payload_size <= UDP_MAX_PAYLOAD # Check valid payload size
+    assert isinstance(payload_size, int) and payload_size > 12 and payload_size <= UDP_MAX_PAYLOAD # Check valid payload size
     assert isinstance(max_burst_size, int) and max_burst_size > 0 # The maximum burst size must be at least 1 packet
 
     # Open .csv file
@@ -145,6 +146,8 @@ def send_udp_flow(dst='127.0.0.1',
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     s.setsockopt(socket.SOL_IP, socket.IP_TOS, tos)
     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, UDP_BUFFER_SIZE) 
+
     s.setblocking(True)
     s.bind(('', sport))
 
@@ -153,7 +156,7 @@ def send_udp_flow(dst='127.0.0.1',
     # Initialize burst counter
     brst_count = 0
     # Initialize sequence number
-    seq_num = 0
+    seq_num = 1
 
     # Save start time
     startTime = lastTime = time.time()
@@ -169,10 +172,11 @@ def send_udp_flow(dst='127.0.0.1',
             # Get timestamp
             timestamp = time.time()
             # Send packet
-            #f = open("send_ts.txt", "w")
-            #f.write("{}\n".format(time.time()))
-            #f.close()
-            s.sendto(seq_num.to_bytes(payload_size, byteorder='big'), (dst, dport))
+            # concatenates sport, dport and sequence number in the packet payload
+            payload =  seq_num.to_bytes(8, byteorder='big') + sport.to_bytes(2, byteorder="big") + dport.to_bytes(2, byteorder="big") + bytes(payload_size - 12)
+
+            s.sendto(payload, (dst, dport))
+
             # Save log to the .csv file
             csv_writer.writerow({'seq_num': seq_num, 't_timestamp': timestamp})
             # Increase the sequence number
@@ -182,7 +186,7 @@ def send_udp_flow(dst='127.0.0.1',
             # Remove tokens from the bucket
             token_bucket -= payload_size + ETHERNET_HEADER + IPV4_HEADER + UDP_HEADER 
             # If the sequence number needs more bytes, raise exception
-            if math.ceil(seq_num.bit_length() / 8) > payload_size:
+            if math.ceil(seq_num.bit_length() / 8) > payload_size-4:
                 raise Exception('cannot store sequence number in packet payload!')
         
         # Get current time
@@ -241,6 +245,7 @@ def recv_udp_flow(sport=5000,
     # Open socket
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, UDP_BUFFER_SIZE) 
     s.bind(('', dport))
 
     # Save start time
@@ -270,9 +275,6 @@ def recv_udp_flow(sport=5000,
 
         try:
             # Get data from socket
-            #f = open("recv_ts.txt", "w")
-            #f.write("{}\n".format(time.time()))
-            #f.close()
             data, address = s.recvfrom(4096)
             # Get timestamp
             timestamp = time.time()
@@ -282,7 +284,7 @@ def recv_udp_flow(sport=5000,
             # Only accept packets from the expected source
             if pkt_sport == sport:
                 # Parse sequence number
-                seq_num = int.from_bytes(data, byteorder='big')
+                seq_num = int.from_bytes(data[:8], byteorder='big')
                 # Save log to the .csv file
                 csv_writer.writerow({'seq_num': seq_num, 'r_timestamp': timestamp})
         # If timeout expired
