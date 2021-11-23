@@ -27,6 +27,8 @@ def run_controllers(net: AdvNetNetworkAPI, inputidr, scenario: str, log_enabled:
     must be called: <switch_name>-controller.py. For example: BAR-controller.py
     """
 
+    # path to SLAs
+    slas_file = inputidr + "/inputs/{}.slas".format(scenario)
     # path to base traffic
     base_traffic_file = inputidr + "/inputs/{}.traffic-base".format(scenario)
     # path
@@ -38,7 +40,7 @@ def run_controllers(net: AdvNetNetworkAPI, inputidr, scenario: str, log_enabled:
         if log_enabled:
             log_file = "./log/controller.log"
         net.execScript(
-            'python {}/controller.py --base-traffic {} > {} &'.format(controllers_dir, base_traffic_file, log_file), reboot=True)
+            'python {}/controller.py --base-traffic {} --slas {} > {} &'.format(controllers_dir, base_traffic_file, slas_file, log_file), reboot=True)
     # schedule other controllers
     for switch_name in net.p4switches():
         if os.path.isfile(controllers_dir + "{}-controller.py".format(switch_name)):
@@ -47,7 +49,7 @@ def run_controllers(net: AdvNetNetworkAPI, inputidr, scenario: str, log_enabled:
             if log_enabled:
                 log_file = "./log/{}-controller.log".format(switch_name)
             net.execScript(
-                'python {}/{}-controller.py --base-traffic {} > {} &'.format(controllers_dir, switch_name, base_traffic_file, log_file), reboot=True)
+                'python {}/{}-controller.py --base-traffic {} --slas {} > {} &'.format(controllers_dir, switch_name, base_traffic_file, slas_file, log_file), reboot=True)
 
 
 def program_switches(net: AdvNetNetworkAPI, inputdir):
