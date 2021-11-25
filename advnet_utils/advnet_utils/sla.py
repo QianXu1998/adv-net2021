@@ -116,6 +116,9 @@ def make_sla(specification: dict):
 
     if sla_type == "prr":
         return AboveThresholdSLA("prr", specification)
+    elif sla_type == "fcr":
+        # For TCP flows, we call "prr" "fcr", but it's the same metric.
+        return AboveThresholdSLA("prr", specification)
     elif sla_type == "fct":
         return BelowThresholdSLA("fct", specification)
     elif sla_type == "delay":
