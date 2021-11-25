@@ -64,9 +64,10 @@ If needed, you are allowed to add new headers _between_ the transport layer and 
 
 **Important.** For traffic that has to be way-pointed, there are additional limitations:
 
-- The packet headers must be of the form: `ethernet + mpls + ip` or `ethernet + ip`. If they do not follow
-  this pattern, we won't be able to verify the waypoint policy for them. If you use
-  `mpls`, use the one we saw in the RSVP exercise. 
+- The packet headers must be of the form: `ethernet + mpls + ip` or `ethernet + ip`. If they do not
+  follow this pattern, we won't be able to verify the waypoint policy for them. If you use `mpls`,
+  use the one we saw in RSVP exercise (stacked version, with 4 bytes per label). We parse a max of
+  10 Labels. 
 - You must keep the following header fields untouched (i.e., keep the original ones):
   - Ethernet type (`0x0800` or `0x8847`)
   - IP source address.

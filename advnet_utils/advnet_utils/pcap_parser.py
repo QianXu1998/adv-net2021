@@ -81,7 +81,7 @@ def pcap_to_flows_sequences(pcap_file):
                 packet = packet[4:]
                 while bottom_of_stack != 1:
                     lb0, lb1, lb2, mpls_ttl = struct.unpack("!BBBB", packet[:4])
-                    bottom_of_stack = 0x1 & lb1
+                    bottom_of_stack = 0x1 & lb2
                     packet = packet[4:]
 
             #IP LAYER Parsing

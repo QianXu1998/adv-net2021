@@ -81,9 +81,20 @@ class AdvNetNetworkAPI(NetworkAPI):
 
             # for some reason the filter only works 
             # in this direction: "ip[1]==0 or (mpls and ip[1]==0)"
+            # add mpls filter recursively 
+            # max 8 hops
+            max_mpls_labels = 10
+            cmd = "tcpdump -i {} -s {} --direction=in -w {} 'ip[1]=={}"
+            for _ in range(max_mpls_labels):
+                cmd +=  " or (mpls and ip[1]=={})"
+            cmd += "' > /dev/null 2>&1 &"
+
             for interface in interfaces:
-                cmd = "tcpdump -i {} -s {} --direction=in -w {} 'ip[1]=={} or (mpls and ip[1]=={})' > /dev/null 2>&1 &".format(interface, snapshot_length, self.waypoint_output + "/" + interface + ".pcap", switch_id, switch_id)
-                run_command(cmd)
+                switch_ids = [switch_id] * (max_mpls_labels + 1)
+                out_name = self.waypoint_output + "/" + interface + ".pcap"
+                _cmd = cmd.format(interface, snapshot_length, out_name, *switch_ids)
+                #print(_cmd)
+                run_command(_cmd)
 
     def startNetwork(self):
         """Starts and configures the network."""
