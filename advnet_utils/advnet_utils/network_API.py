@@ -79,8 +79,10 @@ class AdvNetNetworkAPI(NetworkAPI):
             for neighbor in topo.get_p4switches_connected_to(switch):
                 interfaces.append(topo.get_intfs()[switch][neighbor]["intfName"])
 
+            # for some reason the filter only works 
+            # in this direction: "ip[1]==0 or (mpls and ip[1]==0)"
             for interface in interfaces:
-                cmd = "tcpdump -i {} -s {} --direction=in -w {} ip[1]=={} > /dev/null 2>&1 &".format(interface, snapshot_length, self.waypoint_output + "/" + interface + ".pcap", switch_id)
+                cmd = "tcpdump -i {} -s {} --direction=in -w {} 'ip[1]=={} or (mpls and ip[1]=={})' > /dev/null 2>&1 &".format(interface, snapshot_length, self.waypoint_output + "/" + interface + ".pcap", switch_id, switch_id)
                 run_command(cmd)
 
     def startNetwork(self):

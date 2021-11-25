@@ -3,6 +3,7 @@ import struct
 import socket 
 
 IP_PROTOCOL = 0x0800
+MPLS_PROTOCOL = 0x08847
 
 #constants
 ETH_LEN = 14
@@ -11,7 +12,7 @@ IP_LEN = 20
 TCP_LEN = 14
 UDP_LEN = 8
 
-UDP_DATA_OFFSET = 12
+UDP_DATA_OFFSET = 13
 
 int_to_protocol = {
     6: "tcp",
@@ -65,12 +66,25 @@ def pcap_to_flows_sequences(pcap_file):
             total_size = meta.wirelen
             # remove first layer (in theory ethernet)
             ethertype = struct.unpack("!H", packet[12:default_packet_offset])[0]
-            # skip packet if not ip
-            if ethertype != IP_PROTOCOL:
+
+            # only accept IP and MPLS
+            if ethertype != IP_PROTOCOL and ethertype != MPLS_PROTOCOL:
                 continue
+            
+            # remove ethernet
+            packet = packet[default_packet_offset:]
+
+            # remove all mpls labels 
+            if ethertype == MPLS_PROTOCOL:
+                lb0, lb1, lb2, mpls_ttl = struct.unpack("!BBBB", packet[:4])
+                bottom_of_stack = 0x1 & lb2
+                packet = packet[4:]
+                while bottom_of_stack != 1:
+                    lb0, lb1, lb2, mpls_ttl = struct.unpack("!BBBB", packet[:4])
+                    bottom_of_stack = 0x1 & lb1
+                    packet = packet[4:]
 
             #IP LAYER Parsing
-            packet = packet[default_packet_offset:]
             version = packet[0]
             ip_version = version >> 4
             # we only accept ipv4
@@ -81,11 +95,7 @@ def pcap_to_flows_sequences(pcap_file):
             # ipv4
             src_ip = struct.unpack("!I", packet[12:16])[0]
             dst_ip = struct.unpack("!I", packet[16:20])[0]
-            proto = packet[9]
 
-            # for now only parse udp packets
-            if proto != 17: # udp
-                continue
             packet = packet[ip_length:]
             # try to find the payload of the packet
             # right now our payloads have something in
@@ -93,7 +103,15 @@ def pcap_to_flows_sequences(pcap_file):
             # the payload when we find 50 consecutive 0s.
             offset = find_payload_offset(packet)
             payload = packet[offset:offset+UDP_DATA_OFFSET]
-            seq, sport, dport = struct.unpack("!QHH", payload)
+            seq, proto, sport, dport = struct.unpack("!QBHH", payload)
+
+            # we do not use this anymore since it could come with a custom header from students
+            ip_proto = packet[9]
+
+            # for now only parse udp packets
+            if proto != 17: # udp
+                continue
+
             # build five tuple
             src = int2ip(src_ip)
             dst = int2ip(dst_ip)

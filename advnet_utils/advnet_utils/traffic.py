@@ -130,7 +130,7 @@ def send_udp_flow(dst='127.0.0.1',
     assert isinstance(dport, int) and dport > 0 and dport < 2**16 # Check valid port number
     assert isinstance(tos, int) and tos >= 0 and tos < 2**8 # Check valid ToS value
     assert (isinstance(duration, float) or isinstance(duration, int)) and duration >= 0 # Duration must be positive
-    assert isinstance(payload_size, int) and payload_size > 12 and payload_size <= UDP_MAX_PAYLOAD # Check valid payload size
+    assert isinstance(payload_size, int) and payload_size > 13 and payload_size <= UDP_MAX_PAYLOAD # Check valid payload size
     assert isinstance(max_burst_size, int) and max_burst_size > 0 # The maximum burst size must be at least 1 packet
 
     # Open .csv file
@@ -150,6 +150,9 @@ def send_udp_flow(dst='127.0.0.1',
 
     s.setblocking(True)
     s.bind(('', sport))
+
+    # udp protocol number
+    protocol = 17
 
     # Initialize token bucket
     token_bucket = 0
@@ -172,8 +175,8 @@ def send_udp_flow(dst='127.0.0.1',
             # Get timestamp
             timestamp = time.time()
             # Send packet
-            # concatenates sport, dport and sequence number in the packet payload
-            payload =  seq_num.to_bytes(8, byteorder='big') + sport.to_bytes(2, byteorder="big") + dport.to_bytes(2, byteorder="big") + bytes(payload_size - 12)
+            # concatenates ip proto +  sport, dport and sequence number in the packet payload
+            payload =  seq_num.to_bytes(8, byteorder='big') + protocol.to_bytes(1, byteorder="big") + sport.to_bytes(2, byteorder="big") + dport.to_bytes(2, byteorder="big") + bytes(payload_size - 13)
 
             s.sendto(payload, (dst, dport))
 
@@ -296,7 +299,6 @@ def recv_udp_flow(sport=5000,
     # Close .csv file
     output.flush()
     output.close()
-
 
 def send_tcp_flow(dst='127.0.0.1',
                   sport=5000,

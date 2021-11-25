@@ -44,7 +44,7 @@ On this page, you will find all key technical information about the AdvNet 2021 
     - [`./cli.py experiment-performance [out-dir]`](#clipy-experiment-performance-out-dir)
 - [Performance evaluation](#performance-evaluation)
 - [Getting started](#getting-started)
-- [Frequently Asked Questions (FAQs)](#frequently-asked-questions-faqs)
+- [Frequently Asked Questions (FAQ)](#frequently-asked-questions-faq)
 
 <!-- /TOC -->
 
@@ -90,8 +90,6 @@ The groups will be ranked based on the number of SLAs that their network success
 
 ## Timeline
 
-<!-- > TODO: update with exact dates -->
-
 The project ~~will start on week 7~~ starts on week 8; at this point, you will get access to new VMs for the project, and will be able to start programming your network.
 The different SLAs and project features (additional links, additional traffic, failure scenarios) and SLA to fulfill will be made available progressively.
 
@@ -100,7 +98,7 @@ The most important dates are summarized below:
 |||||
 |---|---|---|---|
 | ✅ |Week 8. | Tue, Nov.9 | Project starts - VMs are available|
-|  |Week 9. | Fri, Nov.19 **(tentative)** | All features available, and SLAs disclosed|
+| ✅ |Week 9. | Fri, Nov.19 **(tentative)** | All features available, and SLAs disclosed|
 |  |Week 12.| Sun. Dec.12 **(changed!)**| Groups submit their traffic and failure configurations|
 |  |Week 13.| Fri. Dec.17 | Groups submit their link configuration and switch programs|
 |  |Week 14.| Mon. Dec.20 | Poster deadline|
@@ -267,24 +265,43 @@ You must specify a failure file as input for the evaluation scenario. You are fr
 
 #### SLAs
 
- **(NEW)** 
+> 🚨 **Updates** 🚨  
+The `prr` SLA's target is now specified in ratio (used to be in percent), and the times are specified in seconds. This is to be consistent with the outputs from the measurement script.  
+We also removed the `rtt` SLA, which will not be used in this year's project.  
+Finally, we use SLA types of `prr` and `fcr` for UDP and TCP flows, respectively. Again, this is to be consistent with the outputs from the measurement script.  
 
-The SLAs are defined using a `csv` file with the following format.
+The SLAs are defined using a `csv` file with the following format (below are only examples, not actual SLAs to satisfy).
+
 ```
-id        , src   , dst   , sport      , dport      , protocol, type, target
-prr_0     , *     , *     , *          , *          , *  , prr   , 50
-fct_0     , BAR_h0, MAD_h0, 5000--*    , 5000--5010 , tcp, fct   , 1000
-delay_0   , BAR_h0, MAD_h0,    *--5001 , 5010--5020 , udp, delay , 50
-rtt_0     , BAR_h0, *     , 5000--5010 , 5000--5010 , tcp, rtt   , 100
-wp_0      , BAR_h0, MAD_h0, 5001--5010 , 5000--5010 , *  , wp    , PAR
+id        , src   , dst   , sport      , dport      , protocol  , type  , target
+prr_0     , *     , *     , *          , *          , udp       , prr   , 0.5
+fcr_0     , *     , *     , *          , *          , tcp       , fcr   , 1
+fct_0     , BAR_h0, MAD_h0, 5000--*    , 5000--5010 , tcp       , fct   , 1.5
+delay_0   , BAR_h0, MAD_h0,    *--5001 , 5010--5020 , udp       , delay , 50
+wp_0      , BAR_h0, MAD_h0, 5001--5010 , 5000--5010 , *         , wp    , PAR
 ```
 
 where `*` signifies a wildcard. Ports may be specified as concrete values, e.g.
 `5000` or `*`; or ranges (wildcards possible), like `5000--5010` pr `5000--*`.
 
+There are four different types of SLAs:
+
+- `prr`: Packet Reception Ratio. The target value defines the ratio of packets sent that must have reached the destination by the end of the test. A value of `1` indicates that all packets must be received. For UDP flows only.
+- `fcr`: Flow Completion Ratio. The target value defines the ratio of packets sent that must have reached the destination by the end of the test. A value of `1` indicates that all packets must be received. For TCP flows only.
+- `fct`: Flow Completion Time. The target value defines the upper-bound for the completion time for receiving all packets from a flow. For to TCP flows only.
+- `delay`: Delay. The target value defines the upper-bound for the mean delay for receiving each packet from a flow. For UDP flows only.
+- `wp`: Way-pointing. The target value defines one switch that _all packets_ from a flow must traverse before reaching their destination.
+
+By definition, the `fct` of a TCP flow is undefined (returns `None`) unless the `fcr` of that flow is `1`.
+
+> 🚨 **Important** 🚨  
+Most SLAs match multiple flows. For an SLA to count as "met," _all matching flows_ must reach or do better than the target value (i.e., higher `prr` or lower `delay`/`fct`). Yes, it's hard :slightly_smiling_face:
+
+Naturally, the `fct` and `delay` SLAs are not considered "met" if no packet reach their intended destination. More precisely, at least one packet of each flow matching a `delay` SLA must be successfully received for that SLA to be satisfiable.
+
 ### Submitting your inputs
 
-Good news: you don't have anything to do! :smiley:
+Good news: you have (almost) notion to do! :smiley:
 
 Once per day, we will fetch your input files directly from your repositories and use them to test your network configuration. The only requirement is that your input files are located in the `/inputs` folder and named:
 
@@ -524,69 +541,6 @@ To get started, log in your project VM, clone your GitLab repository, and you ar
 
 The list of SLA to satisfy will be added shortly.
 
-## Frequently Asked Questions (FAQs)
+## Frequently Asked Questions (FAQ)
 
-#### How to run the project on my own machine?
-
-Some of you asked for a way to work in parallel during the project. To make that easier, we have uploaded a VirtualBox Virtual Disk Image. You can download it here:
-
-- URL: https://polybox.ethz.ch/index.php/s/IHVIURpTts4kF8C 
-- Password : `adv-net-2021`
-
-For this to work you must use VirtualBox (try to update to the latest version, I had problems until I did that). To set up the VM, do the following:
-
-- Create a new VM
-- Go to expert mode
-- Name it, select type Linux and version Ubuntu 64 bits
-- Set memory (at least 4GB)
-- For hard disk, use an existing virtual hard disk file. Here select the disk image you downloaded.
-
-The VM user and password are both `p4`.
-
-#### What am I allowed to do in the controller?
-
-You are allowed to run anything in the controller as long as you only interact with the network as follows:
-
-* Configure switches through the controller API.
-* Receive Packets from the switch.
-* Send additional packets to the switch. 
-
-Thus you can not do things like:
-
-* Run commands that might modify the state or configuration of the network.
-* Run commands that allow you to monitor the state of the network. For example, continuously checking which interfaces are `up` to detect link failures is not allowed. 
-* You can not receive real traffic from one switch and send it to another. For
-  example, `BAR` sends packets to the controller, and the controller injects
-  them to another switch to bypass the network.
-
-
-#### How to understand the output of `./cli.py experiment-performance [output-dir]`
-
-You can find a detailed explanation [above](#clipy-experiment-performance-out-dir). 
-
-#### Is there a way to get topology link delays other than using the `cli`
-
-Yes, you can use the `Delay` class of [get_city_info.py](advnet_utils/advnet_utils/get_city_info.py). For example in your controller you can do:
-
-```python
-from advnet_utils.get_city_info import Delay
-_delay = Delay(<path to project folder>) # infrastructure/project/
-delay = _delay.get_delay("BAR", "PAR")
-```
-
-> The project folder, is not the infrastructure folder itself, but the folder called `project` inside `/home/p4/infrastructure`
-
-> Note this returns the delay of a directly connected link. The delay with multiple hops is the sum of the individual delays + queueing times + switch processing time.
-
-#### How come my delay/rtt is higher than expected? (IMPORTANT)
-
-The delay we set to each link represents only the propagation delay (time for a signal to propagate through the media usually a bit lower than speed of light).
-
-To that you need to sum three more things:
-* `Processing delay`: the time it takes for your software switch to process the packet. And since we are using a software switch, the more complex the code is the more time it will take.
-* `Transmission delay`: time it takes to push a packet into the link. In our case, this is not negligible. To transmit a 1500 bytes packet at 10Mbps we need `1.2ms`((1500*8)/10000000).
-* `Queueing delay`: the time a packet spends in the interface queues. We have set interface queues to 100 packets. That means, that for every packet of 1500 in the queue, packets experience an extra 1.2ms of delay. If the queue is completely full (under heavy congestion) the queueing delay will be `120ms`!.
-
-As you can see, queueing delay plays a huge role in the total delay your traffic might experience. Therefore, when having to optimize for delay/rtt make sure your queues don't build up. For example, if you send 2 `udp` flows to the same link, and their total bandwidth accounts for more than 10Mbps, unless you start dropping something, the queue will eventually get full and all packets will experience an additional 120ms delay.
-
-Furthermore, and also interestingly, you can observe, that by sending a single `tcp` flow, queues will build for some packets. This is due to how `tcp` works. If there is no congestion in the network, once a flow reaches a sending rate of `10Mbps` it continues growing, that makes the queue to grow and delay increases until there is a drop and `tcp` slows down.
+Moved in [a dedicated page](FAQ.md)
