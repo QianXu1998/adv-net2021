@@ -42,6 +42,7 @@ On this page, you will find all key technical information about the AdvNet 2021 
     - [`./cli.py install-requirements [file]`](#clipy-install-requirements-file)
     - [`./cli.py get-delay [node1] [node2]`](#clipy-get-delay-node1-node2)
     - [`./cli.py experiment-performance [out-dir]`](#clipy-experiment-performance-out-dir)
+    - [`./cli.py sla-results [out-dir] [slafile]](#clipy-sla-results-out-dir-slafile)
 - [Performance evaluation](#performance-evaluation)
 - [Getting started](#getting-started)
 - [Frequently Asked Questions (FAQ)](#frequently-asked-questions-faq)
@@ -183,8 +184,8 @@ Each scenario is defined by 4 inputs, found in the `inputs` directory:
 - **(NEW)** `<scenario>.slas`: Service Level Agreements (SLAs) that your network must fulfill.
 
 
-> :rotating_light: __Important__ :rotating_light:  
-The `test.traffic-base` file that we pushed in your GitLab repository _is not_ the final base traffic that will be used in the competition. The final base traffic will be released shortly. 
+> :rotating_light: __Important__ :rotating_light:
+The `test.traffic-base` file that we pushed in your GitLab repository _is not_ the final base traffic that will be used in the competition. The final base traffic will be released shortly.
 
 Note that we only specify the base traffic. You will be evaluated with the traffic and failures that you---and the other groups!---specify. Try to come up with scenarios that allow your network to shine while being challenging for the others!
 
@@ -265,10 +266,10 @@ You must specify a failure file as input for the evaluation scenario. You are fr
 
 #### SLAs
 
-> 🚨 **Updates** 🚨  
-The `prr` SLA's target is now specified in ratio (used to be in percent), and the times are specified in seconds. This is to be consistent with the outputs from the measurement script.  
-We also removed the `rtt` SLA, which will not be used in this year's project.  
-Finally, we use SLA types of `prr` and `fcr` for UDP and TCP flows, respectively. Again, this is to be consistent with the outputs from the measurement script.  
+> 🚨 **Updates** 🚨
+The `prr` SLA's target is now specified in ratio (used to be in percent), and the times are specified in seconds. This is to be consistent with the outputs from the measurement script.
+We also removed the `rtt` SLA, which will not be used in this year's project.
+Finally, we use SLA types of `prr` and `fcr` for UDP and TCP flows, respectively. Again, this is to be consistent with the outputs from the measurement script.
 
 The SLAs are defined using a `csv` file with the following format (below are only examples, not actual SLAs to satisfy).
 
@@ -294,10 +295,12 @@ There are four different types of SLAs:
 
 By definition, the `fct` of a TCP flow is undefined (returns `None`) unless the `fcr` of that flow is `1`.
 
-> 🚨 **Important** 🚨  
+> 🚨 **Important** 🚨
 Most SLAs match multiple flows. For an SLA to count as "met," _all matching flows_ must reach or do better than the target value (i.e., higher `prr` or lower `delay`/`fct`). Yes, it's hard :slightly_smiling_face:
 
 Naturally, the `fct` and `delay` SLAs are not considered "met" if no packet reach their intended destination. More precisely, at least one packet of each flow matching a `delay` SLA must be successfully received for that SLA to be satisfiable.
+
+For way-pointing, the _original_ packets must traverse the way-point; it is not allowed to clone the packets and independently send one to the way-point and the other to the destination. 
 
 ### Submitting your inputs
 
@@ -421,7 +424,7 @@ get-delay [node1] [node2]      Prints delay between two cities.
 experiment-performance [path]  Prints every flow performance in [path]
 ```
 
-> Note: `experiment-performance` is not yet implemented. 
+> Note: `experiment-performance` is not yet implemented.
 
 ### `./cli.py clean [path]`
 
@@ -473,7 +476,7 @@ see the delay of existing links, or links you want to add. For example:
 
 ### `./cli.py experiment-performance [out-dir]`
 
-Prints the individual performance of each flow. Separated by `udp` and `tcp`. 
+Prints the individual performance of each flow. Separated by `udp` and `tcp`.
 
 For `UDP` traffic we measure the packet reception rate in percentage. A 1 means, 100% of the packets where received, whereas 0 means 0% reception rate. For the second parameter, we print the average one way delay. Finally, in the third column, you will find the waypoint rate. The waypoint rate, is the fraction of packets that have been received and have crossed the waypoint switch. If the flow does not have any waypoint rule, we simply display `-`.
 
@@ -507,9 +510,20 @@ LIS_h0  POR_h0    5000  5001             1.0            0.038          0.900295
 
 > Note if you run in `--debug-mode` make sure you stop the network before you check the performances. Some files are only flushed when the network is stopped. If not, the tool might report incomplete results.
 
+
+### `./cli.py sla-results [out-dir] [slafile]
+
+Prints all SLAs, how many flows matched it, and whether they are satisfied.
+
+>  Note that in the latest version, the sla results will automatically be displayed at the end of your run (unless you run with `--debug-mode` flag).
+
+> Make sure to run `./cli.py experiment-performance [out-dir]` first, as the
+  SLA computation relies on it.
+
+
 ## Performance evaluation
 
-In each run of the simulation, we collect various information (delay, packet reception, etc.) required to assess whether the various SLA are met. 
+In each run of the simulation, we collect various information (delay, packet reception, etc.) required to assess whether the various SLA are met.
 
 > Ultimately, the simulation runner will directly compute and return which SLAs your network satisfies. This will be released soon.
 

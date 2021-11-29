@@ -80,9 +80,13 @@ import typing
 
 def check_slas(sla_file: os.PathLike,
                result_file: os.PathLike,
-               output_file: typing.Optional[os.PathLike] = None) \
+               output_file: typing.Optional[os.PathLike] = None,
+               verbose: bool = False) \
         -> typing.List[dict]:
-    """Load SLAs and check results, writing to output file."""
+    """Load SLAs and check results, writing to output file.
+
+    If verbose, also print SLA results nicely formatted.
+    """
     with open(sla_file, "r", newline='') as slafile:
         reader = csv.DictReader(cleanfile(slafile))
         slas = [make_sla(specification) for specification in reader]
@@ -103,6 +107,43 @@ def check_slas(sla_file: os.PathLike,
             writer = csv.DictWriter(outfile, fieldnames)
             writer.writeheader()
             writer.writerows(results)
+
+    if verbose:
+        print()
+        h_width = max(len(str(sla_file)), len(str(result_file)))
+        print('-' * h_width)
+        print('SLA results:')
+        print(sla_file)
+        print(result_file)
+        print('-' * h_width)
+        print()
+
+        separator = "-" * 84
+
+        print(separator)
+        print("ID       Type  Flows (proto, src, dst, sports, dports)    "
+              "#Flows    Tgt    Val   Ok?")
+        print(separator)
+        len_t = max([len(sla.type) for sla in slas])
+        len_i = max([len(sla.id) for sla in slas])
+
+        for sla in slas:
+            def _f(val):
+                return "*" if val is None else str(val)
+
+            def _v(val):
+                if isinstance(val, float):
+                    return f"{val:6.2f}"
+                return f"{str(val):>6s}"
+
+            flows = (f"{_f(sla.protocol):3s} {_f(sla.src):6s} {_f(sla.dst):6s} "
+                     f"{_f(sla.sport[0]):>5s}--{_f(sla.sport[1]):5s} "
+                     f"{_f(sla.dport[0]):>5s}--{_f(sla.dport[1]):5s}")
+
+            sla_spec = (f"{sla.id:{len_i}s} {sla.type:{len_t}s} "
+                        f"{flows} {str(sla.matches):>5s} "
+                        f"{_v(sla.target)} {_v(sla.value)} {sla.satisfied}")
+            print(sla_spec)
 
     return results
 
@@ -133,7 +174,6 @@ def make_sla(specification: dict):
 
 # SLA classes.
 # ============
-
 formattype = typing.TypeVar('formattype')
 
 
@@ -213,10 +253,10 @@ class SLA:
         return {
             "id": self.id,
             "type": self.type,
+            "matches": self.matches,
             "target": self.target,
             "value": "" if self.value is None else self.value,
-            "matches": self.matches,
-            "statisfied": self.satisfied,
+            "satisfied": self.satisfied,
         }
 
     def update(self, result: typing.Dict[str, str]):
