@@ -3,18 +3,18 @@
 <!-- TOC -->
 
 - [Allowed / Not allowed](#allowed--not-allowed)
-    - [Is it allowed to use the controller to "teleport" packets between different switches?](#is-it-allowed-to-use-the-controller-to-teleport-packets-between-different-switches)
     - [What modifications are we allowed to do on the packets?](#what-modifications-are-we-allowed-to-do-on-the-packets)
+    - [Is it allowed to use the controller to "teleport" packets between different switches?](#is-it-allowed-to-use-the-controller-to-teleport-packets-between-different-switches)
     - [What am I allowed to do in the controller?](#what-am-i-allowed-to-do-in-the-controller)
 - [About SLAs](#about-slas)
-    - [Can packets be duplicated in order to meet the way-pointing SLAs?](#can-packets-be-duplicated-in-order-to-meet-the-way-pointing-slas)
+    - [How to "meet" an SLA that applies to multiple flows?](#how-to-meet-an-sla-that-applies-to-multiple-flows)
     - [Does loosing a packet in a TCP flow prevents from meeting a `fcr=1` SLA?](#does-loosing-a-packet-in-a-tcp-flow-prevents-from-meeting-a-fcr1-sla)
     - [(Clarified) Is it allowed to generate additional traffic for the flows that must be way-pointed?](#clarified-is-it-allowed-to-generate-additional-traffic-for-the-flows-that-must-be-way-pointed)
-    - [How to "meet" an SLA that applies to multiple flows?](#how-to-meet-an-sla-that-applies-to-multiple-flows)
+    - [(NEW) Can packets be duplicated in order to meet the way-pointing SLAs?](#new-can-packets-be-duplicated-in-order-to-meet-the-way-pointing-slas)
 - [Development, tooling, debugging](#development-tooling-debugging)
+    - [How to run the project on my own machine?](#how-to-run-the-project-on-my-own-machine)
     - [How can we implement queuing?](#how-can-we-implement-queuing)
     - [Why do UDP flows seem to randomly lose a few packets?](#why-do-udp-flows-seem-to-randomly-lose-a-few-packets)
-    - [How to run the project on my own machine?](#how-to-run-the-project-on-my-own-machine)
     - [How to interpret the output of `./cli.py experiment-performance [output-dir]`?](#how-to-interpret-the-output-of-clipy-experiment-performance-output-dir)
     - [Is there a way to get topology link delays other than using the `cli`?](#is-there-a-way-to-get-topology-link-delays-other-than-using-the-cli)
     - [How come my delay/rtt is higher than expected? (IMPORTANT)](#how-come-my-delayrtt-is-higher-than-expected-important)
@@ -23,11 +23,9 @@
 
 <!-- /TOC -->
 
+<!-- ##################################################### -->
+
 ## Allowed / Not allowed
-
-### Is it allowed to use the controller to "teleport" packets between different switches?
-
-No. As explained [below](#what-am-i-allowed-to-do-in-the-controller) you can not send traffic from a given switch and send and then inject it a different switch.
 
 ### What modifications are we allowed to do on the packets?
 
@@ -53,6 +51,10 @@ This is only for way-pointing; the other SLA types are not impacted.
 
 > If you do not follow these rules, your traffic will not be counted as way-pointed, and you will not get any points for those SLAs.
 
+### Is it allowed to use the controller to "teleport" packets between different switches?
+
+No. As explained [below](#what-am-i-allowed-to-do-in-the-controller) you can not send traffic from a given switch and send and then inject it a different switch.
+
 ### What am I allowed to do in the controller?
 
 You are allowed to run anything in the controller as long as you only interact with the network as follows:
@@ -67,16 +69,13 @@ Thus, you can not do things like:
 - Run commands that allow you to monitor the state of the network. For example, continuously checking which interfaces are `up` to detect link failures is not allowed.
 - You can not receive real traffic from one switch and send it to another. For example, `BAR` sends packets to the controller, and the controller injects them to another switch to bypass the network.
 
+<!-- ##################################################### -->
 
 ## About SLAs
 
-### Can packets be duplicated in order to meet the way-pointing SLAs?
+### How to "meet" an SLA that applies to multiple flows?
 
-No, the way-pointed packets must be the original ones.
-
-For example, it is forbidden to clone a packet that must be way-pointed, send one copy directly to the destination, and send the other copy to the way-point then drop it there.
-
-Packets from `A` to `B` that must be way-pointed via `C` _must_ follow a path of the form `A->C->B`.
+For an SLA to count as "met," _all matching flows_ must reach or do better than the target value (i.e., higher `prr` or lower `delay`/`fct`). Yes, it's hard :slightly_smiling_face:
 
 ### Does loosing a packet in a TCP flow prevents from meeting a `fcr=1` SLA?
 
@@ -92,28 +91,17 @@ In other words: Are we allowed to provide additional traffic that matches an SLA
 
 Yes. If the additional flows you specify match an SLA (currently, that is possible for way-pointing only), then the SLA has to be met for these flows as well.
 
-### How to "meet" an SLA that applies to multiple flows?
+### (NEW) Can packets be duplicated in order to meet the way-pointing SLAs?
 
-For an SLA to count as "met," _all matching flows_ must reach or do better than the target value (i.e., higher `prr` or lower `delay`/`fct`). Yes, it's hard :slightly_smiling_face:
+No, the way-pointed packets must be the original ones.
 
+For example, it is forbidden to clone a packet that must be way-pointed, send one copy directly to the destination, and send the other copy to the way-point then drop it there.
 
+Packets from `A` to `B` that must be way-pointed via `C` _must_ follow a path of the form `A->C->B`.
 
+<!-- ##################################################### -->
 
 ## Development, tooling, debugging
-
-### How can we implement queuing?
-
-Unfortunately, the implementation of queues in the `bmv2` software switch are... unreliable (it's an under-statement). Therefore, we have disabled them in the project, such that you don't run into problems that have nothing to do with your own configuration.
-
-> That's not great, we know, but there is not much we can do about it...
-
-There is one alternative you can use to implement some queuing logic in your network nonetheless: you can send traffic to the controller, and implement buffer management and queuing there (if you find it to be worth it since this might further increase delay on packets).
-
-### Why do UDP flows seem to randomly lose a few packets?
-
-If you do tests with a single UDP flow, and 0 congestion, you will see that sometimes the reported `prr` is a bit below 1 (1-3 packets get lost). In short, this is a problem in the `bmv2` switch model that we use for simulation. We could not pinpoint the reason for it at the point.
-
-> This is why updated the list of SLAs with a maximum `prr` target of 99% for UDP flows. As this glitch loose only very few packets, it will not cause 1% packet loss for our scenario; 99% is actually a quite generous for a "perfect" flow.
 
 ### How to run the project on my own machine?
 
@@ -132,6 +120,19 @@ For this to work you must use VirtualBox (try to update to the latest version, I
 
 The VM user and password are both `p4`.
 
+### How can we implement queuing?
+
+Unfortunately, the implementation of queues in the `bmv2` software switch are... unreliable (it's an under-statement). Therefore, we have disabled them in the project, such that you don't run into problems that have nothing to do with your own configuration.
+
+> That's not great, we know, but there is not much we can do about it...
+
+There is one alternative you can use to implement some queuing logic in your network nonetheless: you can send traffic to the controller, and implement buffer management and queuing there (if you find it to be worth it since this might further increase delay on packets).
+
+### Why do UDP flows seem to randomly lose a few packets?
+
+If you do tests with a single UDP flow, and 0 congestion, you will see that sometimes the reported `prr` is a bit below 1 (1-3 packets get lost). In short, this is a problem in the `bmv2` switch model that we use for simulation. We could not pinpoint the reason for it at the point.
+
+> This is why updated the list of SLAs with a maximum `prr` target of 99% for UDP flows. As this glitch loose only very few packets, it will not cause 1% packet loss for our scenario; 99% is actually a quite generous for a "perfect" flow.
 
 ### How to interpret the output of `./cli.py experiment-performance [output-dir]`?
 
@@ -165,9 +166,7 @@ As you can see, queuing delay plays a huge role in the total delay your traffic 
 
 Furthermore, and also interestingly, you can observe, that by sending a single `tcp` flow, queues will build for some packets. This is due to how `tcp` works. If there is no congestion in the network, once a flow reaches a sending rate of `10Mbps` it continues growing, that makes the queue to grow and delay increases until there is a drop and `tcp` slows down.
 
-
-
-
+<!-- ##################################################### -->
 
 ## About the final presentation/evaluation
 
@@ -175,6 +174,4 @@ Furthermore, and also interestingly, you can observe, that by sending a single `
 
 This remains to be decided, as it will depend on whether we can hold the final session in person, or not. Updates on the final presentation format will follow in due time.
 
-
-
-
+<!-- ##################################################### -->
