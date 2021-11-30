@@ -19,7 +19,8 @@ from advnet_utils.utils import (get_user, load_constrains,
 cur_dir = os.path.dirname(os.path.abspath(__file__)) + "/"
 
 
-def run_controllers(net: AdvNetNetworkAPI, inputidr, scenario: str, log_enabled: bool = False):
+def run_controllers(net: AdvNetNetworkAPI, inputidr, scenario: str,
+                    log_enabled: bool = False):
     """Schedules controllers
 
     The controller code must be placed in `inputdir/controllers/`
@@ -41,20 +42,23 @@ def run_controllers(net: AdvNetNetworkAPI, inputidr, scenario: str, log_enabled:
     # schedule global controller if exists.
     if os.path.isfile(controllers_dir + "controller.py"):
         # set log file
-        log_file = "/dev/null"
+        log_file = None
         if log_enabled:
             log_file = "./log/controller.log"
         net.execScript(
-            'python {}/controller.py --base-traffic {} --slas {} > {} &'.format(controllers_dir, base_traffic_file, slas_file, log_file), reboot=True)
+            'python {}/controller.py --base-traffic {} --slas {}'.format(
+                controllers_dir, base_traffic_file, slas_file),
+            out_file=log_file, reboot=True)
     # schedule other controllers
     for switch_name in net.p4switches():
-        if os.path.isfile(controllers_dir + "{}-controller.py".format(switch_name)):
+        if os.path.isfile(
+                controllers_dir + "{}-controller.py".format(switch_name)):
             # set log file
-            log_file = "/dev/null"
+            log_file = None
             if log_enabled:
                 log_file = "./log/{}-controller.log".format(switch_name)
-            net.execScript(
-                'python {}/{}-controller.py --base-traffic {} --slas {} > {} &'.format(controllers_dir, switch_name, base_traffic_file, slas_file, log_file), reboot=True)
+            net.execScript('python {}/{}-controller.py --base-traffic {} --slas {}'.format(
+                controllers_dir, switch_name, base_traffic_file, slas_file), log_file, reboot=True)
 
 
 def program_switches(net: AdvNetNetworkAPI, inputdir):
@@ -78,7 +82,10 @@ def program_switches(net: AdvNetNetworkAPI, inputdir):
             net.setP4Source(switch_name, p4src_dir + "/switch.p4")
 
 
-def run_network(inputdir, scenario, outputdir, debug_mode, log_enabled, pcap_enabled, warmup_phase=10, check_constrains=True, no_events=False, only_check_inputs=False):
+def run_network(
+        inputdir, scenario, outputdir, debug_mode, log_enabled, pcap_enabled,
+        warmup_phase=10, check_constrains=True, no_events=False,
+        only_check_inputs=False):
     """Starts the project simulation"""
     # starts the flow scheduling task
     net = AdvNetNetworkAPI()
@@ -114,8 +121,9 @@ def run_network(inputdir, scenario, outputdir, debug_mode, log_enabled, pcap_ena
     # schedule link failures
     _failure_constrains = project_constrains["failure_constrains"]
     _failures_file = inputdir + "/inputs/" + "{}.failure".format(scenario)
-    links_manager = LinksManager(net, failures_file=_failures_file,
-                                 constrains=_failure_constrains, added_links=_added_links)
+    links_manager = LinksManager(
+        net, failures_file=_failures_file, constrains=_failure_constrains,
+        added_links=_added_links)
     # schedules link events
     if no_events == False:
         links_manager.start(simulation_time_reference)
@@ -135,14 +143,14 @@ def run_network(inputdir, scenario, outputdir, debug_mode, log_enabled, pcap_ena
         "{}.traffic-additional".format(scenario)
     _base_traffic_file = inputdir + "/inputs/" + \
         "{}.traffic-base".format(scenario)
-    _slas_file = inputdir + "/inputs/" + \
-        "{}.slas".format(scenario)
+    _slas_file = inputdir + "/inputs/" + "{}.slas".format(scenario)
     # get max traffic type for additional and base traffic to guess the experiment duration
     experiment_duration = max(_additional_traffic_constrains.get(
         "max_time", 0), _base_traffic_constrains.get("max_time", 0))
-    traffic_manager = TrafficManager(net, _additional_traffic_file,
-                                     _base_traffic_file, _slas_file, _additional_traffic_constrains,
-                                     _base_traffic_constrains, check_constrains, outputdir, experiment_duration)
+    traffic_manager = TrafficManager(
+        net, _additional_traffic_file, _base_traffic_file, _slas_file,
+        _additional_traffic_constrains, _base_traffic_constrains,
+        check_constrains, outputdir, experiment_duration)
 
     # configure net waypoints
     waypoint_switches = traffic_manager.get_wp_helper().get_waypoint_switches()
@@ -179,21 +187,23 @@ def run_network(inputdir, scenario, outputdir, debug_mode, log_enabled, pcap_ena
 
         # wait for experiment to finish
         if not debug_mode:
-            wait_experiment(simulation_time_reference,
-                            experiment_duration, outputdir, 10)
-            # stop network
-            info('Stopping network...\n')
-            net.setLogLevel('output')
-            net.net.stop()
-            # print performances
-            print_experiment_performances(outputdir)
-            # compute, store, and print sla results
-            check_slas(
-                inputdir + f"/inputs/{scenario}.slas",
-                outputdir + "results.csv",
-                outputdir + "sla.csv",
-                verbose=True
-            )
+            try:
+                wait_experiment(simulation_time_reference,
+                                experiment_duration, outputdir, 10)
+                # stop network
+                net.stopNetwork()
+                # print performances
+                print_experiment_performances(outputdir)
+                # compute, store, and print sla results
+                check_slas(
+                    inputdir + f"/inputs/{scenario}.slas",
+                    outputdir + "results.csv",
+                    outputdir + "sla.csv",
+                    verbose=True
+                )
+            except:
+                # stop network
+                net.stopNetwork()
 
     # change output dir rights since all has been written with root
     os.system("chown -R {}:{} {}".format(_user, _user, outputdir))
@@ -204,27 +214,41 @@ def run_network(inputdir, scenario, outputdir, debug_mode, log_enabled, pcap_ena
 
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--inputdir', help='Path to all inputs (controllers, p4src)',
-                        type=str, required=False, default='./')
-    parser.add_argument('--scenario', help='Path to all input events (links, failures, traffic)',
-                        type=str, required=False, default='test')
+    parser.add_argument(
+        '--inputdir', help='Path to all inputs (controllers, p4src)', type=str,
+        required=False, default='./')
+    parser.add_argument(
+        '--scenario',
+        help='Path to all input events (links, failures, traffic)', type=str,
+        required=False, default='test')
     parser.add_argument('--warmup', help='Time before starting the simulation',
                         type=float, required=False, default=20)
-    parser.add_argument('--outputdir', help='Path were the experiment outputs will be saved. If it exists, all content is erased',
-                        type=str, required=False, default='./outputs/')
-    parser.add_argument('--debug-mode', help='Runs topology indefinetely and lets you access the mininet cli',
-                        action='store_true', required=False, default=False)
+    parser.add_argument(
+        '--outputdir',
+        help='Path were the experiment outputs will be saved. If it exists, all content is erased',
+        type=str, required=False, default='./outputs/')
+    parser.add_argument(
+        '--debug-mode',
+        help='Runs topology indefinetely and lets you access the mininet cli',
+        action='store_true', required=False, default=False)
     parser.add_argument('--log-enabled', help='Enables logging',
                         action='store_true', required=False, default=False)
-    parser.add_argument('--pcap-enabled', help='Enables pcap captures (not recommended)',
-                        action='store_true', required=False, default=False)
-    parser.add_argument('--no-events', help='Disables all link and traffic events. Useful for debugging.',
-                        action='store_true', required=False, default=False)
+    parser.add_argument(
+        '--pcap-enabled', help='Enables pcap captures (not recommended)',
+        action='store_true', required=False, default=False)
+    parser.add_argument(
+        '--no-events',
+        help='Disables all link and traffic events. Useful for debugging.',
+        action='store_true', required=False, default=False)
 
-    parser.add_argument('--no-constrains', help='Disables traffic and link constrains (only use for testing).',
-                        action='store_false', required=False, default=True)
-    parser.add_argument('--check-inputs', help='Only checks if input files fulfill the contrains. Does not run the network!',
-                        action='store_true', required=False, default=False)
+    parser.add_argument(
+        '--no-constrains',
+        help='Disables traffic and link constrains (only use for testing).',
+        action='store_false', required=False, default=True)
+    parser.add_argument(
+        '--check-inputs',
+        help='Only checks if input files fulfill the contrains. Does not run the network!',
+        action='store_true', required=False, default=False)
     return parser.parse_args()
 
     # constrains are disabled if no-constrains is set.
@@ -233,4 +257,5 @@ def get_args():
 if __name__ == "__main__":
     args = get_args()
     run_network(args.inputdir, args.scenario, args.outputdir, args.debug_mode,
-                args.log_enabled, args.pcap_enabled, float(args.warmup), args.no_constrains, args.no_events, args.check_inputs)
+                args.log_enabled, args.pcap_enabled, float(args.warmup),
+                args.no_constrains, args.no_events, args.check_inputs)

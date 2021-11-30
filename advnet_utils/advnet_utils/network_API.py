@@ -1,6 +1,7 @@
 """Small modification to p4utils network API"""
 
 import time
+import psutil
 
 from p4utils.mininetlib.network_API import NetworkAPI
 from p4utils.utils.helper import load_topo, run_command
@@ -64,7 +65,7 @@ class AdvNetNetworkAPI(NetworkAPI):
 
     def set_waypoint_filters(self, snapshot_length=250):
         """Sets the tcpdump filter for the waypointing"""
-        
+
         topo = load_topo("/tmp/topology.json")
         # for every switch we set a filter for all interfaces
         for switch in topo.get_p4switches().keys():
@@ -77,24 +78,28 @@ class AdvNetNetworkAPI(NetworkAPI):
             # I believe we do not need to capture node interfaces
             interfaces = []
             for neighbor in topo.get_p4switches_connected_to(switch):
-                interfaces.append(topo.get_intfs()[switch][neighbor]["intfName"])
+                interfaces.append(
+                    topo.get_intfs()[switch][neighbor]["intfName"])
 
-            # for some reason the filter only works 
+            # for some reason the filter only works
             # in this direction: "ip[1]==0 or (mpls and ip[1]==0)"
-            # add mpls filter recursively 
+            # add mpls filter recursively
             # max 8 hops
             max_mpls_labels = 10
-            cmd = "tcpdump -i {} -s {} --direction=in -w {} 'ip[1]=={}"
+            cmd = 'tcpdump -i {} -s {} --direction=in -w {} '
+            filter = 'ip[1] == {}'
             for _ in range(max_mpls_labels):
-                cmd +=  " or (mpls and ip[1]=={})"
-            cmd += "' > /dev/null 2>&1 &"
+                filter += ' or (mpls and ip[1]=={})'
 
             for interface in interfaces:
                 switch_ids = [switch_id] * (max_mpls_labels + 1)
                 out_name = self.waypoint_output + "/" + interface + ".pcap"
-                _cmd = cmd.format(interface, snapshot_length, out_name, *switch_ids)
-                #print(_cmd)
-                run_command(_cmd)
+                _cmd = cmd.format(interface, snapshot_length,
+                                  out_name)
+                _filter = filter.format(*switch_ids)
+                final_cmd = _cmd.split() + [_filter]
+                # print(_cmd)
+                run_command(final_cmd, outputfile=None)
 
     def startNetwork(self):
         """Starts and configures the network."""
@@ -103,7 +108,7 @@ class AdvNetNetworkAPI(NetworkAPI):
 
         debug('Auto configuration of not configured interfaces...\n')
         self.auto_assignment()
-        
+
         info('Compiling P4 files...\n')
         self.compile()
         output('P4 Files compiled!\n')
@@ -137,7 +142,7 @@ class AdvNetNetworkAPI(NetworkAPI):
         info('Programming hosts...\n')
         self.program_hosts()
         output('Hosts programmed correctly!\n')
-        
+
         info('Executing scripts...\n')
         self.exec_scripts()
         output('All scripts executed correctly!\n')
@@ -148,7 +153,4 @@ class AdvNetNetworkAPI(NetworkAPI):
 
         if self.cli_enabled:
             self.start_net_cli()
-            # Stop right after the CLI is exited
-            info('Stopping network...\n')
-            self.net.stop()
-            output('Network stopped!\n')
+            self.stopNetwork()
