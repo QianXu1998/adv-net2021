@@ -14,6 +14,7 @@
 - [Development, tooling, debugging](#development-tooling-debugging)
     - [How to run the project on my own machine?](#how-to-run-the-project-on-my-own-machine)
     - [How can we implement queuing?](#how-can-we-implement-queuing)
+    - [(NEW) Can we use queueing metadata in the switch?](#can-we-use-queueing-metadata-in-the-switch)
     - [Why do UDP flows seem to randomly lose a few packets?](#why-do-udp-flows-seem-to-randomly-lose-a-few-packets)
     - [How to interpret the output of `./cli.py experiment-performance [output-dir]`?](#how-to-interpret-the-output-of-clipy-experiment-performance-output-dir)
     - [Is there a way to get topology link delays other than using the `cli`?](#is-there-a-way-to-get-topology-link-delays-other-than-using-the-cli)
@@ -122,11 +123,20 @@ The VM user and password are both `p4`.
 
 ### How can we implement queuing?
 
-Unfortunately, the implementation of queues in the `bmv2` software switch are... unreliable (it's an under-statement). Therefore, we have disabled them in the project, such that you don't run into problems that have nothing to do with your own configuration.
+Unfortunately, the implementation of multiple queues in the `bmv2` software switch are... unreliable (it's an under-statement). Therefore, we have disabled them in the project, such that you don't run into problems that have nothing to do with your own configuration.
 
 > That's not great, we know, but there is not much we can do about it...
 
 There is one alternative you can use to implement some queuing logic in your network nonetheless: you can send traffic to the controller, and implement buffer management and queuing there (if you find it to be worth it since this might further increase delay on packets).
+
+### Can we use queueing metadata in the switch?
+
+The `bmv2` p4 model exposes queueing metadata such as `enq_qdepth`, `deq_timedelta` and `deq_qdepth`, but they contain essentially useless values in our project and you should not rely on them for your solution.
+
+We use linux `tc` to rate limit the links (i.e 10 Mbps) and add some delay. This happens after the packet leaves 
+the switch -- which means that all congestion and buffering happens _outside_ of the switch, and the switch queue never contains more than a single packet.
+Thus, the queueing metadata does not provide you with any useful information about the actual congestion on a link.
+
 
 ### Why do UDP flows seem to randomly lose a few packets?
 
