@@ -404,8 +404,12 @@ def waypoint_perf(outputdir):
                                                             flow["sport"], 
                                                             flow["dport"], 
                                                             flow["protocol"])
-        receiver_df = pd.read_csv(receiver_file)
-        receiver_df.drop_duplicates(subset='seq_num', keep='first', inplace=True)
+        try:
+            receiver_df = pd.read_csv(receiver_file)
+        except FileNotFoundError:
+            return flow_wp_performances  # Nothing to return
+        receiver_df.drop_duplicates(
+            subset='seq_num', keep='first', inplace=True)
 
         flow_key = (
             flow["src_ip"], 

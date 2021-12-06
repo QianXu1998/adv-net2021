@@ -183,15 +183,26 @@ def run_network(
             net.disableCli()
 
         # Start network
-        net.startNetwork()
-
-        # wait for experiment to finish
-        if not debug_mode:
-            try:
+        try:
+            net.startNetwork()
+            # wait for experiment to finish
+            if not debug_mode:
                 wait_experiment(simulation_time_reference,
                                 experiment_duration, outputdir, 10)
                 # stop network
-                net.stopNetwork()
+                info('Stopping network...\n')
+                net.setLogLevel('output')
+                net.net.stop()
+        except Exception as e:
+            # Always stop network.
+            net.stopNetwork()
+            print("--------------------------------")
+            print("ERROR: Your setup failed to run!")
+            print('--------------------------------')
+            raise e
+        finally:
+            # Compute results, even if it failed.
+            if not debug_mode:
                 # print performances
                 print_experiment_performances(outputdir)
                 # compute, store, and print sla results
@@ -201,12 +212,8 @@ def run_network(
                     outputdir + "sla.csv",
                     verbose=True
                 )
-            except:
-                # stop network
-                net.stopNetwork()
-
-    # change output dir rights since all has been written with root
-    os.system("chown -R {}:{} {}".format(_user, _user, outputdir))
+            # change output dir rights since all has been written with root
+            os.system("chown -R {}:{} {}".format(_user, _user, outputdir))
 
 # MAIN Runner
 # ===========
