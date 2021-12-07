@@ -15,9 +15,9 @@ typedef bit<48> macAddr_t;
 typedef bit<32> ip4Addr_t;
 
 header ethernet_t {
+    macAddr_t dstAddr;
 	macAddr_t srcAddr;
-	macAddr_t dstAddr;
-	bit<16>   stherType;
+	bit<16>   etherType;
 }
 
 // Header definition for MPLS

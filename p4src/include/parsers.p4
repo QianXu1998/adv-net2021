@@ -2,8 +2,6 @@
 *********************** P A R S E R  *******************************
 *************************************************************************/
 
-#include <headers.p4>
-
 parser MyParser(packet_in packet,
                 out headers hdr,
                 inout metadata meta,
@@ -43,7 +41,7 @@ parser MyParser(packet_in packet,
 control MyDeparser(packet_out packet, in headers hdr) {
     apply {
         packet.emit(hdr.ethernet);
-        packet.emit(hdr.mpls);
+        //packet.emit(hdr.mpls);
         packet.emit(hdr.ipv4);
      }
 }
