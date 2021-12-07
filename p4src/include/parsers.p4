@@ -2,6 +2,8 @@
 *********************** P A R S E R  *******************************
 *************************************************************************/
 
+#include <headers.p4>
+
 parser MyParser(packet_in packet,
                 out headers hdr,
                 inout metadata meta,
@@ -21,8 +23,11 @@ parser MyParser(packet_in packet,
     }
 
     state parse_mpls {
-        packet.extract(hdr.mpls);
-        transition parse_ipv4;
+        packet.extract(hdr.mpls.next);
+        transition select(hdr.mpls.last.s) {
+            1: parse_ipv4;
+            default: parse_mpls;
+        }
     }
 
     state parse_ipv4 {

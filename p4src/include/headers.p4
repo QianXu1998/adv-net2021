@@ -51,8 +51,8 @@ struct metadata {
 
 // Instantiate packet headers
 struct headers {
-	ethernet_t  ethernet;
-	mpls_t      mpls;
-	ipv4_t      ipv4;
+	ethernet_t                    ethernet;
+	mpls_t[CONST_MAX_LABELS]      mpls;
+	ipv4_t                        ipv4;
 }
 
