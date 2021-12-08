@@ -2,8 +2,8 @@
 *********************** H E A D E R S  ***********************************
 *************************************************************************/
 
-#define CONST_MAX_LABELS      4
-#define CONST_MAX_PORTS       9
+#define CONST_MAX_LABELS      8
+#define CONST_MAX_HOPS        9
 
 // Define constants
 const bit<16> TYPE_IPV4 = 0x800;
@@ -13,6 +13,7 @@ const bit<16> TYPE_MPLS = 0x8847;
 typedef bit<9>  egressSpec_t;
 typedef bit<48> macAddr_t;
 typedef bit<32> ip4Addr_t;
+typedef bit<20> label_t;
 
 header ethernet_t {
     macAddr_t dstAddr;
@@ -45,14 +46,13 @@ header ipv4_t {
 
 // Instantiate metadata fields
 struct metadata {
-	bit<1> is_ingress_border;
-	bit<1> is_egress_border;
+	
 }
 
 // Instantiate packet headers
 struct headers {
 	ethernet_t                    ethernet;
-	mpls_t[CONST_MAX_LABELS]      mpls;
+	mpls_t[CONST_MAX_HOPS]        mpls;
 	ipv4_t                        ipv4;
 }
 

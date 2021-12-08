@@ -207,15 +207,15 @@ class Controller(object):
                 logging.debug(f"Applying {paths}")
                 dst = self.switches[paths[-1]]
                 dst_ip = dst.host.ip
-                dst.controller.table_add("ipv4_lpm", "ipv4_forward", [dst_ip], [dst.host.mac, str(dst.host_port)])
-                logging.debug(f"[{str(dst)}] table_add: ipv4_lpm ipv4_forward {[dst_ip]} {[dst.host.mac, dst.host_port]}")
+                dst.controller.table_add("FEC_tbl", "ipv4_forward", [dst_ip], [dst.host.mac, str(dst.host_port)])
+                logging.debug(f"[{str(dst)}] table_add: FEC_tbl ipv4_forward {[dst_ip]} {[dst.host.mac, dst.host_port]}")
                 for i in range(len(paths) - 1):
                     cur = paths[i]
                     next = paths[i+1]
                     cur_sw = self.switches[cur]
                     cur_port, _, _, next_mac = cur_sw.get_link_to(next)
-                    cur_sw.controller.table_add("ipv4_lpm", "ipv4_forward", [dst_ip], [next_mac, str(cur_port)])
-                    logging.debug(f"[{str(cur_sw)}] table_add: ipv4_lpm ipv4_forward {[dst_ip]} {[next_mac, cur_port]}")
+                    cur_sw.controller.table_add("FEC_tbl", "ipv4_forward", [dst_ip], [next_mac, str(cur_port)])
+                    logging.debug(f"[{str(cur_sw)}] table_add: FEC_tbl ipv4_forward {[dst_ip]} {[next_mac, cur_port]}")
 
 
     def cal_shortest_path(self):

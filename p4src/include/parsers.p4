@@ -41,7 +41,7 @@ parser MyParser(packet_in packet,
 control MyDeparser(packet_out packet, in headers hdr) {
     apply {
         packet.emit(hdr.ethernet);
-        //packet.emit(hdr.mpls);
+        packet.emit(hdr.mpls);
         packet.emit(hdr.ipv4);
      }
 }
