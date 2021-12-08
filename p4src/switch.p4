@@ -311,7 +311,8 @@ control MyIngress(inout headers hdr,
     // Define FEC Table for ingress port
     table FEC_tbl {
         key = {
-            hdr.ipv4.dstAddr: lpm;
+            hdr.ipv4.srcAddr: lpm;
+            hdr.ipv4.dstAddr: exact;
         }
         actions = {
             ipv4_forward;
