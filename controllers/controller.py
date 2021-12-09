@@ -9,6 +9,7 @@ from p4utils.utils.sswitch_thrift_API import SimpleSwitchThriftAPI
 from enum import IntEnum
 import logging
 import numpy as np
+# TODO: remove logging to speedup
 logging.basicConfig(filename='/tmp/controller.log', format="[%(levelname)s] %(message)s", level=logging.DEBUG)
 
 # [DEBUG] Switch: AMS
@@ -155,18 +156,39 @@ class Switch:
         self.sw_links = {}
         self.host = Host(self)
         self.controller = None # type: SimpleSwitchThriftAPI
+        self.hosts_path = [ ( (), 0xFFFF ) for i in range(16) ]
 
     def get_link_to(self, city: City):
         #logging.debug(self.sw_links)
         next_sw = self.sw_links[city]['sw']
         return self.sw_links[city]['port'], self.sw_links[city]['mac'], next_sw.sw_links[self.city]['port'], next_sw.sw_links[self.city]['mac']
 
-    def table_add(self, *args, **kwargs):
-        r = self.controller.table_add(*args, **kwargs)
-        logging.debug(f"[{str(self)}] table_add args={args} kwargs={kwargs} ret={r}")
+    def table_add(self, table_name, action_name, match_keys, action_params):
+        r = self.controller.table_add(table_name, action_name, match_keys, action_params)
+        logging.debug(f"[{str(self)}] table_add {table_name} {action_name} {match_keys} {action_params} ret={r}")
         if r is None:
             logging.warning(f"[{str(self)}] table_add ret is None!")
         return r
+
+    def table_modify(self, table_name, hdl, action_name, action_params):
+        r = self.controller.table_modify(table_name, action_name, hdl, action_params)
+        logging.debug(f"[{str(self)}] table_modify {table_name} {action_name} {action_params} hdl={hdl} ret={r}")
+        return r
+
+    def dst_table_add(self, dst: City, table_name, action_name, match_keys, action_params, best_path):
+        last_path, last_hdl = self.hosts_path[dst]
+        if last_hdl == 0xFFFF:
+            hdl = self.table_add(table_name, action_name, match_keys, action_params)
+            if hdl is not None:
+                self.hosts_path[dst] = (best_path, hdl)
+            return hdl
+        else:
+            if best_path != last_path:
+                hdl = self.table_modify(table_name, last_hdl, action_name, action_params)
+                self.hosts_path[dst] = (best_path, hdl)
+                logging.debug(f"[{str(self)}] -> [{str(dst)}] Path Change (hdl={hdl} last_hdl={last_hdl}):\n{last_path}\n{best_path}")
+                return hdl
+            return last_hdl
 
     @property
     def host_port(self):
@@ -182,7 +204,6 @@ class Host:
         self._lpm = None
         self._ip = None
         self.sw_port = None
-        self.mpls_table_handle = None
     
     @property
     def lpm(self):
@@ -200,8 +221,6 @@ class Host:
     def __str__(self) -> str:
         return f"{str(self.city_sw)}_h0"
 
-
-
 class Controller(object):
 
     def __init__(self, base_traffic, slas):
@@ -213,15 +232,12 @@ class Controller(object):
         self.weights = initial_weights.copy()
         self.switches = [Switch(City(i)) for i in range(16)]
         self.init()
-        
-    def parse_slas(self):
-        rdr = csv.DictReader(cleanfile(self.slas_file))
-        self.slas = [make_sla(spec) for spec in rdr]
 
-
-    def parse_traffic(self):
+    def parse_inputs(self):
+        with open(self.slas_file, "r+") as f:
+            rdr = csv.DictReader(cleanfile(f))
+            self.slas = [make_sla(spec) for spec in rdr]
         self.flows = parse_traffic(self.base_traffic_file)
-
 
     def init(self):
         """Basic initialization. Connects to switches and resets state."""
@@ -229,11 +245,20 @@ class Controller(object):
         self.reset_states()
         self.build_topo()
         self.sanity_check()
+        self.parse_inputs()
 
         # TODO: Build shortest paths by bw requests
-        self.shortest_paths = self.cal_shortest_path()
+        #self.paths = self.cal_paths()
+        #self.shortest_paths = self.cal_shortest_path()
+        self.best_paths = self.cal_best_paths()
         
         self.build_mpls_forward_table()
+        self.build_mpls_fec()
+
+        
+        # import ipdb
+
+        # ipdb.set_trace()
 
         # self.add_reservation("AMS_h0", "PAR_h0", ['AMS', 'LON', 'PAR'], 40, 1)
         # self.add_reservation("PAR_h0", "AMS_h0", ['PAR','LON', 'AMS'], 40, 1)
@@ -245,7 +270,7 @@ class Controller(object):
             logging.debug(f"{str(sw)}:{sw.host_port} -> {str(sw.host)}")
 
     def build_mpls_path(self, c1: City, c2: City):
-        paths = self.shortest_paths[c1][c2]
+        paths = self.best_paths[c1][c2]
         mpls_ports = []
 
         # TODO: Handle invalid paths!
@@ -260,21 +285,28 @@ class Controller(object):
 
         return mpls_ports
 
+    def build_mpls_fec(self):
+        for sw1 in self.switches:
+            c1 = sw1.city
+
+            for i in range(16):
+                if i != c1:
+                    dst_sw = self.switches[i]
+                    c2 = dst_sw.city
+                    # 1 2 1 2 => 2 is on the bottom of the stack
+                    mpls_path = list(map(str, self.build_mpls_path(c1, c2)[::-1]))
+
+                    # TODO: Fix sw1.host.lpm!!!!!!!!
+                    sw1.dst_table_add(c2, "FEC_tbl", f"mpls_ingress_{len(mpls_path)}_hop", [sw1.host.lpm, dst_sw.host.ip], mpls_path, self.best_paths[c1][c2])
+
+
     def build_mpls_forward_table(self):
         for sw1 in self.switches:
             c1 = sw1.city
 
             sw1.table_add("FEC_tbl", "ipv4_forward", ["0.0.0.0/0", sw1.host.ip], [sw1.host.mac, str(sw1.host.sw_port)])
 
-            for i in range(16):
-                if i != c1:
-                    dst_sw = self.switches[i]
-                    # 1 2 1 2 => 2 is on the bottom of the stack
-                    mpls_path = list(map(str, self.build_mpls_path(c1, dst_sw.city)[::-1]))
-
-                    # TODO: Fix sw1.host.lpm!!!!!!!!
-                    sw1.host.mpls_table_handle = sw1.table_add("FEC_tbl", f"mpls_ingress_{len(mpls_path)}_hop", [sw1.host.lpm, dst_sw.host.ip], mpls_path)
-
+            
             for c2 in sw1.sw_links:
                 c1_port, c1_mac, c2_port, c2_mac = sw1.get_link_to(c2)
 
@@ -282,51 +314,68 @@ class Controller(object):
                 sw1.table_add("mpls_tbl", "mpls_forward", [ str(c1_port), "0" ], [c2_mac, str(c1_port)])
                 sw1.table_add("mpls_tbl", "penultimate", [ str(c1_port), "1" ], [c2_mac, str(c1_port)])
 
+    def cal_best_paths(self):
+        paths = self.cal_paths()
 
-    def cal_shortest_path(self, required_bw: dict = None):
-        paths = [ [ -1 for __ in range(16) ] for _ in range(16)]
+        best_paths = [ [ () for j in range(16) ] for i in range(16) ]
+
+        for sla in self.slas:
+            if sla.type == "wp":
+                try:
+                    target_city =  city_maps[sla.target]
+                    src_city = city_maps[sla.src.split("_")[0]]
+                    dst_city = city_maps[sla.dst.split("_")[0]]
+
+                    # TODO: Optimize by ports?
+                    for p in paths[src_city][dst_city]:
+                        if target_city in p[0]:
+                            best_paths[src_city][dst_city] = p[0]
+                            logging.debug(f"Select the best path based on sla {str(src_city)} -> {str(target_city)} -> {str(dst_city)}: {p[0]}")
+                            break
+                except (KeyError, IndexError):
+                    logging.exception("")
+
+        return [ [ paths[i][j][0][0] if best_paths[i][j] == () and len(paths[i][j]) != 0  else best_paths[i][j] for j in range(16) ] for i in range(16) ]
+
+    def cal_paths(self):
         dis = [ [ 0xFFFF for __ in range(16) ] for _ in range(16)]
-        
-        if required_bw is None:
-            required_bw = [ [0 for __ in range(16)] for _ in range(16)]
 
         for city1, c1_w in self.weights.items():
             for city2, w in c1_w.items():
                 dis[city1][city2] = w
-
-        for k in range(16):
-            for i in range(16):
-                for j in range(16):
-                    d = dis[i][k] + dis[k][j]
-                    if dis[i][j] > d and self.links_capacity[i][k] >= required_bw[i][k] and self.links_capacity[k][j] >= required_bw[k][j]:
-                        dis[i][j] = d
-                        paths[i][j] = k
         
-        def _retrieve_path(start, end):
-            if paths[start][end] == -1:
-                return [City(start), City(end)]
+        def _paths_from_city(src_city: City):
+            ps = []
+            ps.append( ((src_city,), 0) )
+            idx = 0
+            while idx < len(ps):
+                #logging.debug(f"[{City(src_city)}]: ps={ps}")
+                top = ps[idx]
+                idx += 1
+                cur = top[0][-1]
 
-            k = paths[start][end]
-            return _retrieve_path(start, k)[:-1] + _retrieve_path(k, end)
+                for j in range(16):
+                    if dis[cur][j] != 0xFFFF and j not in top[0]:
+                        ps.append( (top[0] + (City(j),), top[1] + dis[cur][j]) )
+            
+            return ps
 
-        results = {}
-        logging.debug(f"links_capacity:\n{np.array(self.links_capacity)}")
-        logging.debug(f"required_bw:\n{np.array(required_bw)}")
-        logging.debug(f"weights:\n{np.array(self.weights)}")
-        logging.debug(f"dis:\n{np.array(dis)}")
+        paths = [ [ [] for __ in range(16) ] for _ in range(16)]
+        for i in range(16):
+            ps = _paths_from_city(City(i))
+
+            for p in ps:
+                dst = p[0][-1]
+                w = p[1]
+                if w > 0:
+                    paths[i][dst].append(p)
+                    logging.debug(f"[{str(City(i))}] -> [{str(City(dst))}]: {p}")
 
         for i in range(16):
-            results[City(i)] = {}
             for j in range(16):
-                if i != j:
-                    p = _retrieve_path(i, j)
-                    results[City(i)][City(j)] = p
-                    if not(City(i) in self.switches[j].sw_links and City(j) in self.switches[i].sw_links ):
-                        if len(p) == 2:
-                            logging.warning(f"Wrong path {str(City(i))} -> {str(City(j))}: {p}")
-                    logging.debug(f"{str(City(i))} -> {str(City(j))}: {p}")
-
-        return results
+                paths[i][j].sort(key=lambda t: t[1])
+        
+        return paths
 
     def reset_states(self):
         """Resets switches state"""
