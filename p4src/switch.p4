@@ -27,6 +27,9 @@ control MyIngress(inout headers hdr,
     }
 
     action ipv4_forward(macAddr_t dstAddr, egressSpec_t port) {
+        
+        hdr.ethernet.etherType = TYPE_IPV4;
+        hdr.mpls.push_front(9); // Force invalidation
 
         hdr.ethernet.srcAddr = hdr.ethernet.dstAddr;
         hdr.ethernet.dstAddr = dstAddr;
@@ -34,19 +37,6 @@ control MyIngress(inout headers hdr,
         standard_metadata.egress_spec = port;
         hdr.ipv4.ttl = hdr.ipv4.ttl - 1;
     }
-
-    // // Define default ipv4 forwarding
-    // table ipv4_lpm {
-    //     key = {
-    //         hdr.ipv4.dstAddr: lpm;
-    //     }
-    //     actions = {
-    //         ipv4_forward;
-    //         drop;
-    //     }
-    //     default_action = drop;
-    //     size = 128;
-    // }
 
     // Build label stack in LER
     action mpls_ingress_1_hop(label_t label_1) {
@@ -308,6 +298,66 @@ control MyIngress(inout headers hdr,
         hdr.mpls[0].s = 0;
     }
 
+    action mpls_ingress_9_hop(label_t label_1, label_t label_2, label_t label_3, label_t label_4, label_t label_5, label_t label_6, label_t label_7, label_t label_8, label_t label_9) {
+        // rsvp_meter.read(meta.meter_color);
+
+        hdr.ethernet.etherType = TYPE_MPLS;
+
+        hdr.mpls.push_front(1);
+        hdr.mpls[0].setValid();
+        hdr.mpls[0].label = label_1;
+        hdr.mpls[0].ttl = hdr.ipv4.ttl - 1;
+        hdr.mpls[0].s = 1;
+
+        hdr.mpls.push_front(1);
+        hdr.mpls[0].setValid();
+        hdr.mpls[0].label = label_2;
+        hdr.mpls[0].ttl = hdr.ipv4.ttl - 1;
+        hdr.mpls[0].s = 0;
+
+        hdr.mpls.push_front(1);
+        hdr.mpls[0].setValid();
+        hdr.mpls[0].label = label_3;
+        hdr.mpls[0].ttl = hdr.ipv4.ttl - 1;
+        hdr.mpls[0].s = 0;
+
+        hdr.mpls.push_front(1);
+        hdr.mpls[0].setValid();
+        hdr.mpls[0].label = label_4;
+        hdr.mpls[0].ttl = hdr.ipv4.ttl - 1;
+        hdr.mpls[0].s = 0;
+
+        hdr.mpls.push_front(1);
+        hdr.mpls[0].setValid();
+        hdr.mpls[0].label = label_5;
+        hdr.mpls[0].ttl = hdr.ipv4.ttl - 1;
+        hdr.mpls[0].s = 0;
+
+        hdr.mpls.push_front(1);
+        hdr.mpls[0].setValid();
+        hdr.mpls[0].label = label_6;
+        hdr.mpls[0].ttl = hdr.ipv4.ttl - 1;
+        hdr.mpls[0].s = 0;
+
+        hdr.mpls.push_front(1);
+        hdr.mpls[0].setValid();
+        hdr.mpls[0].label = label_7;
+        hdr.mpls[0].ttl = hdr.ipv4.ttl - 1;
+        hdr.mpls[0].s = 0;
+
+        hdr.mpls.push_front(1);
+        hdr.mpls[0].setValid();
+        hdr.mpls[0].label = label_8;
+        hdr.mpls[0].ttl = hdr.ipv4.ttl - 1;
+        hdr.mpls[0].s = 0;
+
+        hdr.mpls.push_front(1);
+        hdr.mpls[0].setValid();
+        hdr.mpls[0].label = label_9;
+        hdr.mpls[0].ttl = hdr.ipv4.ttl - 1;
+        hdr.mpls[0].s = 0;
+    }
+
     // Define FEC Table for ingress port
     table FEC_tbl {
         key = {
@@ -324,6 +374,7 @@ control MyIngress(inout headers hdr,
             mpls_ingress_6_hop;
             mpls_ingress_7_hop;
             mpls_ingress_8_hop;
+            mpls_ingress_9_hop;
             NoAction;
         }
         default_action = NoAction();
@@ -351,7 +402,7 @@ control MyIngress(inout headers hdr,
         hdr.ipv4.ttl = hdr.mpls[0].ttl - 1;
 
         standard_metadata.egress_spec = port;
-        hdr.mpls.pop_front(1);
+        hdr.mpls.push_front(9);
     }
 
     table mpls_tbl {
@@ -365,7 +416,7 @@ control MyIngress(inout headers hdr,
             NoAction;
         }
         default_action = NoAction();
-        size = CONST_MAX_LABELS;
+        size = 256;
     }
 
     apply {
