@@ -19,6 +19,7 @@ from scapy.all import *
 from scapy.layers.l2 import Ether
 from datetime import datetime
 from thrift.Thrift import TApplicationException
+import copy
 # TODO: remove logging to speedup
 logging.basicConfig(filename='/tmp/controller.log', format="[%(levelname)s] %(message)s", level=logging.DEBUG)
 
@@ -380,7 +381,7 @@ class Controller(object):
         self.topo = load_topo('topology.json')
         self.controllers = {}
         self.links_capacity = [ [0 for __ in range(16)] for _ in range(16) ]
-        self.weights = initial_weights.copy()
+        self.weights = copy.deepcopy(initial_weights)
         self.switches = [Switch(City(i)) for i in range(16)]
         self.init()
 
@@ -520,7 +521,7 @@ class Controller(object):
                 w = p[1]
                 if w > 0:
                     paths[i][dst].append(p)
-                    logging.debug(f"[{str(City(i))}] -> [{str(City(dst))}]: {p}")
+                    #logging.debug(f"[{str(City(i))}] -> [{str(City(dst))}]: {p}")
 
         for i in range(16):
             for j in range(16):
@@ -599,7 +600,7 @@ class Controller(object):
             # sw2 hasn't receive hb for a long time!
             # TODO: Consider SLA??
             if self.weights[sw1.city][sw2.city] != 0xFFFF:
-                logging.debug(f"Get a failure from {str(sw1)} -> {str(sw2)}")
+                logging.debug(f"Get a failure from {str(sw1)} -> {str(sw2)} weights {self.weights[sw1.city][sw2.city]} {self.weights[sw2.city][sw1.city]}")
                 self.weights[sw1.city][sw2.city] = 0xFFFF
                 self.weights[sw2.city][sw1.city] = 0xFFFF
 
@@ -616,9 +617,11 @@ class Controller(object):
             if self.weights[sw1.city][sw2.city] != 0xFFFF:
                 return
             
-            logging.debug(f"Failure recovery from {str(sw1)} -> {str(sw2)}")
+            logging.debug(f"Failure recovery from {str(sw1)} -> {str(sw2)} weights {self.weights[sw1.city][sw2.city]} {self.weights[sw2.city][sw1.city]}")
             self.weights[sw1.city][sw2.city] = initial_weights[sw1.city][sw2.city]
+            #logging.debug(f"2 Failure recovery from {str(sw1)} -> {str(sw2)} weights {self.weights[sw1.city][sw2.city]} {self.weights[sw2.city][sw1.city]} {initial_weights[sw1.city][sw2.city]} {initial_weights[sw2.city][sw1.city]}")
             self.weights[sw2.city][sw1.city] = initial_weights[sw2.city][sw1.city]
+            #logging.debug(f"3 Failure recovery from {str(sw1)} -> {str(sw2)} weights {self.weights[sw1.city][sw2.city]} {self.weights[sw2.city][sw1.city]}")
             self.best_paths = self.cal_best_paths()
             self.build_mpls_fec()
 
