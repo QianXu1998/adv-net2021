@@ -9,6 +9,16 @@ from p4utils.utils.sswitch_thrift_API import SimpleSwitchThriftAPI
 from enum import IntEnum
 import logging
 import numpy as np
+import threading
+import binascii
+import struct
+import time
+import socket
+import nnpy
+from scapy.all import *
+from scapy.layers.l2 import Ether
+from datetime import datetime
+from thrift.Thrift import TApplicationException
 # TODO: remove logging to speedup
 logging.basicConfig(filename='/tmp/controller.log', format="[%(levelname)s] %(message)s", level=logging.DEBUG)
 
@@ -154,6 +164,7 @@ class Switch:
     def __init__(self, city: City):
         self.city = city
         self.sw_links = {}
+        self.sw_ports = {}
         self.host = Host(self)
         self.controller = None # type: SimpleSwitchThriftAPI
         self.hosts_path = [ ( (), 0xFFFF ) for i in range(16) ]
@@ -220,6 +231,146 @@ class Host:
 
     def __str__(self) -> str:
         return f"{str(self.city_sw)}_h0"
+
+class Ping(threading.Thread):
+
+    def __init__(self, sw1: Switch, sw2: Switch, interval: float):
+        super().__init__()
+        # sw1 < sw2!
+        self.sw1 = sw1
+        self.sw2 = sw2
+        self.interval = interval
+
+    def build_hearbeat(self):
+        s1_port, s1_mac, _, s2_mac = self.sw1.get_link_to(self.sw2.city)
+        bs = b""
+        bs += b"".join(map(binascii.unhexlify, s2_mac.split(":")))
+        bs += b"".join(map(binascii.unhexlify, s1_mac.split(":")))
+        bs += struct.pack(">H", 0x1926)
+        bs += struct.pack(">H", (s1_port << 7) | (1 << 6))
+
+        return bs
+
+
+    def run(self):
+        inf1, inf2 = self.sw1.sw_links[self.sw2.city]['interfaces']
+
+        while True:
+            skt = socket.socket(socket.AF_PACKET, socket.SOCK_RAW)
+
+            skt.bind((inf1, 0))
+            bs = self.build_hearbeat()
+            logging.debug(f"[{str(self.sw1)}] -> [{str(self.sw2)}]: Sniffing {inf1}")
+            while True:
+                try:
+                    skt.send(bs)
+                    #logging.debug(f"[{str(self.sw1)}] Sent packet to {inf1}")
+                    time.sleep(self.interval)
+                except OSError:
+                    skt.close()
+                    time.sleep(self.interval)
+                    break
+
+
+class Pong(threading.Thread):
+
+    def __init__(self, sw: Switch, threshold: float, failure_cb: callable, good_cb: callable):
+        super().__init__()
+        # sw1 < sw2!
+        self.sw = sw
+        self.failure_cb = failure_cb
+        self.good_cb = good_cb
+        self.threshold = threshold
+        self.last_seen = {}
+        self.latest_timestamp = 0
+
+        for p in self.sw.sw_ports:
+            self.last_seen[p] = None
+    
+    def unpack_digest(self, msg: bytes, num_samples: int):
+        digest = []
+        starting_index = 32
+        for _ in range(num_samples):
+            #logging.debug(f"[{str(self.sw)}]: msg={msg[starting_index:starting_index+8]}")
+            stamp0, stamp1, port = struct.unpack(">LHH", msg[starting_index:starting_index+8])
+            starting_index +=8
+            stamp = (stamp0 << 16) + stamp1
+            digest.append( (port, stamp / 1e6) )
+        return digest
+
+    def process_stamps(self, stamps: list):
+        #logging.debug(f"[{str(self.sw)}] Get stamps={stamps}")
+        for port, stamp in stamps:
+            if stamp > self.latest_timestamp:
+                self.latest_timestamp = stamp
+            if self.last_seen[port] is None:
+                self.last_seen[port] = stamp
+                continue
+            else: 
+                d = stamp - self.last_seen[port]
+                #logging.debug(f"[{str(self.sw)}]: d={d} port={port} stamp={stamp}")
+                if d > self.threshold :
+                    self.failure_cb(self, [port])
+                else:
+                    self.good_cb(self, [port])
+
+                self.last_seen[port] = stamp
+
+    def process(self, msg: bytes):
+        topic, device_id, ctx_id, list_id, buffer_id, num = struct.unpack("<iQiiQi",
+                                                                          msg[:32])
+        digest = self.unpack_digest(msg, num)
+        self.process_stamps(digest)
+        #Acknowledge digest
+        self.sw.controller.client.bm_learning_ack_buffer(ctx_id, list_id, buffer_id)
+
+    def run(self):
+        skt = nnpy.Socket(nnpy.AF_SP, nnpy.SUB)
+        #time.sleep(5)
+        #self.sw2.controller.mirroring_add
+        ns = self.sw.controller.client.bm_mgmt_get_info().notifications_socket
+        logging.debug(f"[{str(self.sw)}]: ns={ns} threshold={self.threshold}")
+        skt.connect(ns)
+        skt.setsockopt(nnpy.SUB, nnpy.SUB_SUBSCRIBE, '')
+        while True:
+            #logging.debug(f"in while")
+            try:
+                #logging.debug(f"[{str(self.sw)}]: seen={self.last_seen} latest={self.latest_timestamp}")
+                time.sleep(self.threshold)
+                msg = skt.recv(nnpy.DONTWAIT)
+                #logging.debug(f"[{str(self.sw)}] recv {msg}")
+                self.process(msg)
+            except AssertionError:
+                # fports = []
+                # for p in self.sw.sw_ports:
+                #     if self.last_seen[p] is not None:
+                #         n = datetime.now()
+                #         if n.timestamp() - self.last_seen[p] > self.threshold:
+                #             fports.append(p)
+                
+                # if len(fports) != 0:
+                #     self.failure_cb(self, fports)
+                #logging.debug(f"[{str(self.sw)}]")
+                #logging.exception("")
+                pass
+            except TApplicationException:
+                #logging.debug(f"[{str(self.sw)}]")
+                #logging.exception("")
+                pass
+            finally:
+                fports = []
+                #logging.debug(f"[{str(self.sw)}] final")
+                if self.latest_timestamp != 0:
+                    for p in self.sw.sw_ports:
+                        if self.last_seen[p] is not None:
+                            if self.latest_timestamp - self.last_seen[p] > self.threshold:
+                                fports.append(p)
+                
+                if len(fports) != 0:
+                    self.failure_cb(self, fports)
+                
+                #logging.debug(f"[{str(self.sw)}] final done")
+
 
 class Controller(object):
 
@@ -408,13 +559,15 @@ class Controller(object):
                     neigh_switch = self.switches[neigh_city]
                     bw = float(int(attrs['bw']))
                     sw.sw_links[neigh_city] = {
-                        "port" : attrs['port'],
+                        "port" : attrs['port'], # TODO: Tuple?
                         "delay" : attrs['delay'],
                         "mac" : attrs['addr'],
                         "sw" : neigh_switch,
-                        "bw" : bw
+                        "bw" : bw,
+                        "interfaces" : (attrs['intfName'], attrs['intfName_neigh'])
                     }
 
+                    sw.sw_ports[attrs['port']] = neigh_switch
                     self.links_capacity[city][neigh_city] = bw
                     self.links_capacity[neigh_city][city] = bw
         
@@ -437,11 +590,68 @@ class Controller(object):
                     logging.warning(f"Reverse weight doesn't exist for {city2} -> {city1}, setting it to {w}")
                     self.weights[city2][city1] = w
 
+    def has_failure(self, pong: Pong, ports: list):
+        sw2 = pong.sw
+
+        logging.debug(f"[{str(sw2)}]: Possible failures from {ports}")
+        for port in ports:
+            sw1 = sw2.sw_ports[port] # type: Switch
+            # sw2 hasn't receive hb for a long time!
+            # TODO: Consider SLA??
+            if self.weights[sw1.city][sw2.city] != 0xFFFF:
+                logging.debug(f"Get a failure from {str(sw1)} -> {str(sw2)}")
+                self.weights[sw1.city][sw2.city] = 0xFFFF
+                self.weights[sw2.city][sw1.city] = 0xFFFF
+
+                self.best_paths = self.cal_best_paths()
+                self.build_mpls_fec()
+
+        
+
+    def no_failure(self, pong: Pong, ports: list):
+        sw2 = pong.sw
+
+        for port in ports:
+            sw1 = sw2.sw_ports[port] # type: Switch
+            if self.weights[sw1.city][sw2.city] != 0xFFFF:
+                return
+            
+            logging.debug(f"Failure recovery from {str(sw1)} -> {str(sw2)}")
+            self.weights[sw1.city][sw2.city] = initial_weights[sw1.city][sw2.city]
+            self.weights[sw2.city][sw1.city] = initial_weights[sw2.city][sw1.city]
+            self.best_paths = self.cal_best_paths()
+            self.build_mpls_fec()
+
+    def start_monitor(self):
+        ts = []
+        for i in range(16):
+            c1 = City(i)
+            s1 = self.switches[c1]
+
+            for c2 in s1.sw_links:
+                s2 = self.switches[c2]
+
+                if c1 < c2:
+                    ts.append(Ping(s1, s2, 0.1))
+        
+        for i in range(16):
+            ts.append(Pong(self.switches[i], 0.2, self.has_failure, self.no_failure))
+        #ts.append(Pong(self.switches[City.POR], 0.2, self.has_failure, self.no_failure))
+        
+        for t in ts:
+            t.start()
+
+        return ts
+
     def run(self):
-        """Run function"""
+        monitors = self.start_monitor()
+
+        for m in monitors:
+            m.join()
 
     def main(self):
         """Main function"""
+        # Don't touch it.
         self.run()
 
 

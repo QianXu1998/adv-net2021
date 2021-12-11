@@ -7,6 +7,7 @@
 // Define constants
 const bit<16> TYPE_IPV4 = 0x800;
 const bit<16> TYPE_MPLS = 0x8847;
+const bit<16> TYPE_HEART = 0x1926;
 
 // Define headers
 typedef bit<9>  egressSpec_t;
@@ -28,6 +29,12 @@ header mpls_t {
 	bit<8>   ttl;
 }
 
+header heart_t {
+    bit<9>    port;
+    bit<1>    from_cp;
+    bit<6>    padding;
+}
+
 header ipv4_t {
     bit<4>    version;
     bit<4>    ihl;
@@ -43,14 +50,21 @@ header ipv4_t {
     ip4Addr_t dstAddr;
 }
 
+struct digest_t {
+    bit<48> stamp;
+    //bit<7> padding;
+    bit<9> port;
+}
+
 // Instantiate metadata fields
 struct metadata {
-	
+	digest_t hb;
 }
 
 // Instantiate packet headers
 struct headers {
 	ethernet_t                    ethernet;
+    heart_t                       heart;
 	mpls_t[CONST_MAX_HOPS]        mpls;
 	ipv4_t                        ipv4;
 }

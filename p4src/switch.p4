@@ -421,11 +421,23 @@ control MyIngress(inout headers hdr,
 
     apply {
         /* Ingress Pipeline Control Logic */
-        if(hdr.ipv4.isValid()){
-            FEC_tbl.apply();
-        }
-        if(hdr.mpls[0].isValid()){
-            mpls_tbl.apply();
+        if (hdr.heart.isValid()) {
+            if (hdr.heart.from_cp == 1) {
+                hdr.heart.from_cp = 0;
+                standard_metadata.egress_spec = hdr.heart.port;
+            } else {
+                meta.hb.stamp = standard_metadata.ingress_global_timestamp;
+                meta.hb.port = standard_metadata.ingress_port;
+                digest<digest_t>(1, meta.hb);
+                mark_to_drop(standard_metadata);
+            }
+        } else {
+            if(hdr.ipv4.isValid()){
+                FEC_tbl.apply();
+            }
+            if(hdr.mpls[0].isValid()){
+                mpls_tbl.apply();
+            }
         }
     }
 }
