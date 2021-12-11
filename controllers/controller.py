@@ -669,5 +669,10 @@ def get_args():
 
 if __name__ == "__main__":
     args = get_args()
-    controller = Controller(args.base_traffic, args.slas)
-    controller.main()
+    try:
+        controller = Controller(args.base_traffic, args.slas)
+        controller.main()
+    except KeyboardInterrupt:
+        exit(0)
+    except Exception as e:
+        logging.exception("")
