@@ -96,7 +96,8 @@ initial_weights = {
     },
     City.BER : {
         City.FRA : 3,
-        City.MUN : 4
+        City.MUN : 4,
+        City.GLO : 1
     },
     City.BRI : {
         City.LON : 1
@@ -113,6 +114,7 @@ initial_weights = {
     },
     City.GLO : {
         City.LON : 1,
+        City.BRI : 1
     },
     City.LIL : {
         City.PAR : 1
@@ -254,23 +256,28 @@ class Ping(threading.Thread):
 
 
     def run(self):
-        inf1, inf2 = self.sw1.sw_links[self.sw2.city]['interfaces']
+        try:
+            inf1, inf2 = self.sw1.sw_links[self.sw2.city]['interfaces']
 
-        while True:
-            skt = socket.socket(socket.AF_PACKET, socket.SOCK_RAW)
-
-            skt.bind((inf1, 0))
-            bs = self.build_hearbeat()
-            logging.debug(f"[{str(self.sw1)}] -> [{str(self.sw2)}]: Sniffing {inf1}")
             while True:
-                try:
-                    skt.send(bs)
-                    #logging.debug(f"[{str(self.sw1)}] Sent packet to {inf1}")
-                    time.sleep(self.interval)
-                except OSError:
-                    skt.close()
-                    time.sleep(self.interval)
-                    break
+                skt = socket.socket(socket.AF_PACKET, socket.SOCK_RAW)
+
+                skt.bind((inf1, 0))
+                bs = self.build_hearbeat()
+                logging.debug(f"[{str(self.sw1)}] -> [{str(self.sw2)}]: Sniffing {inf1}")
+                while True:
+                    try:
+                        skt.send(bs)
+                        #logging.debug(f"[{str(self.sw1)}] Sent packet to {inf1}")
+                        time.sleep(self.interval)
+                    except OSError:
+                        skt.close()
+                        time.sleep(self.interval)
+                        break
+        except KeyboardInterrupt:
+            return
+        except Exception:
+            logging.exception("")
 
 
 class Pong(threading.Thread):
@@ -326,51 +333,56 @@ class Pong(threading.Thread):
         self.sw.controller.client.bm_learning_ack_buffer(ctx_id, list_id, buffer_id)
 
     def run(self):
-        skt = nnpy.Socket(nnpy.AF_SP, nnpy.SUB)
-        #time.sleep(5)
-        #self.sw2.controller.mirroring_add
-        ns = self.sw.controller.client.bm_mgmt_get_info().notifications_socket
-        logging.debug(f"[{str(self.sw)}]: ns={ns} threshold={self.threshold}")
-        skt.connect(ns)
-        skt.setsockopt(nnpy.SUB, nnpy.SUB_SUBSCRIBE, '')
-        while True:
-            #logging.debug(f"in while")
-            try:
-                #logging.debug(f"[{str(self.sw)}]: seen={self.last_seen} latest={self.latest_timestamp}")
-                time.sleep(self.threshold)
-                msg = skt.recv(nnpy.DONTWAIT)
-                #logging.debug(f"[{str(self.sw)}] recv {msg}")
-                self.process(msg)
-            except AssertionError:
-                # fports = []
-                # for p in self.sw.sw_ports:
-                #     if self.last_seen[p] is not None:
-                #         n = datetime.now()
-                #         if n.timestamp() - self.last_seen[p] > self.threshold:
-                #             fports.append(p)
-                
-                # if len(fports) != 0:
-                #     self.failure_cb(self, fports)
-                #logging.debug(f"[{str(self.sw)}]")
-                #logging.exception("")
-                pass
-            except TApplicationException:
-                #logging.debug(f"[{str(self.sw)}]")
-                #logging.exception("")
-                pass
-            finally:
-                fports = []
-                #logging.debug(f"[{str(self.sw)}] final")
-                if self.latest_timestamp != 0:
-                    for p in self.sw.sw_ports:
-                        if self.last_seen[p] is not None:
-                            if self.latest_timestamp - self.last_seen[p] > self.threshold:
-                                fports.append(p)
-                
-                if len(fports) != 0:
-                    self.failure_cb(self, fports)
-                
-                #logging.debug(f"[{str(self.sw)}] final done")
+        try:
+            skt = nnpy.Socket(nnpy.AF_SP, nnpy.SUB)
+            #time.sleep(5)
+            #self.sw2.controller.mirroring_add
+            ns = self.sw.controller.client.bm_mgmt_get_info().notifications_socket
+            logging.debug(f"[{str(self.sw)}]: ns={ns} threshold={self.threshold}")
+            skt.connect(ns)
+            skt.setsockopt(nnpy.SUB, nnpy.SUB_SUBSCRIBE, '')
+            while True:
+                #logging.debug(f"in while")
+                try:
+                    #logging.debug(f"[{str(self.sw)}]: seen={self.last_seen} latest={self.latest_timestamp}")
+                    time.sleep(self.threshold)
+                    msg = skt.recv(nnpy.DONTWAIT)
+                    #logging.debug(f"[{str(self.sw)}] recv {msg}")
+                    self.process(msg)
+                except AssertionError:
+                    # fports = []
+                    # for p in self.sw.sw_ports:
+                    #     if self.last_seen[p] is not None:
+                    #         n = datetime.now()
+                    #         if n.timestamp() - self.last_seen[p] > self.threshold:
+                    #             fports.append(p)
+                    
+                    # if len(fports) != 0:
+                    #     self.failure_cb(self, fports)
+                    #logging.debug(f"[{str(self.sw)}]")
+                    #logging.exception("")
+                    pass
+                except TApplicationException:
+                    #logging.debug(f"[{str(self.sw)}]")
+                    #logging.exception("")
+                    pass
+                finally:
+                    fports = []
+                    #logging.debug(f"[{str(self.sw)}] final")
+                    if self.latest_timestamp != 0:
+                        for p in self.sw.sw_ports:
+                            if self.last_seen[p] is not None:
+                                if self.latest_timestamp - self.last_seen[p] > self.threshold:
+                                    fports.append(p)
+                    
+                    if len(fports) != 0:
+                        self.failure_cb(self, fports)
+                    
+                    #logging.debug(f"[{str(self.sw)}] final done")
+        except KeyboardInterrupt:
+            return
+        except Exception:
+            logging.exception("")
 
 
 class Controller(object):
@@ -381,7 +393,8 @@ class Controller(object):
         self.topo = load_topo('topology.json')
         self.controllers = {}
         self.links_capacity = [ [0 for __ in range(16)] for _ in range(16) ]
-        self.weights = copy.deepcopy(initial_weights)
+        #self.weights = copy.deepcopy(initial_weights)
+        self.weights = { City(i) : {} for i in range(16) }
         self.switches = [Switch(City(i)) for i in range(16)]
         self.init()
 
@@ -571,6 +584,8 @@ class Controller(object):
                     sw.sw_ports[attrs['port']] = neigh_switch
                     self.links_capacity[city][neigh_city] = bw
                     self.links_capacity[neigh_city][city] = bw
+                    self.weights[city][neigh_city] = float(attrs['delay'][:-2])
+                    self.weights[neigh_city][city] = float(attrs['delay'][:-2])
         
         self.pprint_topo()
 
@@ -612,8 +627,10 @@ class Controller(object):
     def no_failure(self, pong: Pong, ports: list):
         sw2 = pong.sw
 
+        #logging.debug(f"[{str(sw2)}]: Possible recovery from {ports}")
         for port in ports:
             sw1 = sw2.sw_ports[port] # type: Switch
+            #logging.debug(f"[{str(sw2)}]: Recovery from {str(sw1)} -> {str(sw2)}")
             if self.weights[sw1.city][sw2.city] != 0xFFFF:
                 return
             
