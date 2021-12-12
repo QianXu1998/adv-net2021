@@ -603,6 +603,7 @@ control MyIngress(inout headers hdr,
             }
         } else if (hdr.link_state.isValid()) {
             update_link();
+            mark_to_drop(standard_metadata);
         } else {
             if(hdr.ipv4.isValid()){
                 FEC_tbl.apply();

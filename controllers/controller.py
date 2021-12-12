@@ -273,7 +273,7 @@ class Nop(threading.Thread):
         logging.debug(f"[NOP-MESSAGE] [{str(self.sw1)}] Sent Link failed packet to {inf1}")
         skt = socket.socket(socket.AF_PACKET, socket.SOCK_RAW)
         skt.bind((inf1, 0))
-        bs = self.build_link_state_1
+        bs = self.build_link_state_1()
         logging.debug(f"[NOP-MESSAGE] [{str(self.sw1)}] -> [{str(self.sw2)}]: Sniffing {inf1}")
         try:
             skt.send(bs)
@@ -656,7 +656,18 @@ class Controller(object):
                 if city1 not in self.weights[city2]:
                     logging.warning(f"Reverse weight doesn't exist for {city2} -> {city1}, setting it to {w}")
                     self.weights[city2][city1] = w
-    
+
+    # Nop Packet generating part
+    def build_nop_packet(self, port_index, port_state, sw1: Switch, sw2: Switch):
+        s1_port, s1_mac, s2_port, s2_mac = sw1.get_link_to(sw2.city)
+        bs = b""
+        bs += b"".join(map(binascii.unhexlify, s2_mac.split(":")))
+        bs += b"".join(map(binascii.unhexlify, s1_mac.split(":")))
+        bs += struct.pack(">H", 0x2020)
+        bs += struct.pack(">H", (port_index << 1) | (port_state))
+
+        return bs
+
     def mpls_path_rebuild(self, path):
         mpls_ports = []
 
@@ -675,7 +686,7 @@ class Controller(object):
         sw_l.append(sw1_wf)
         sw_l.append(sw2_wf)
 
-        logging.debug(f"[Failure-Recover] Link between {sw1_wf.city} -> {sw2_wf.city} failed")
+        logging.debug(f"[Failure-Recover] Link between {str(sw1_wf.city)} -> {str(sw2_wf.city)} failed")
         logging.debug(f"[Failure-Recover] Recompute routing paths")
         
         # Rebuild all routes avoiding the failed link
@@ -684,26 +695,55 @@ class Controller(object):
                 if(j != sw_l[i].city):
                     # Check whether from swi_wf.city to j uses the failed link
                     if(sw_l[1-i].city in self.best_paths[sw_l[i].city][j]):
-                        logging.debug(f"[Failure-Recover] {sw_l[1-i].city} in {self.best_paths[sw_l[i].city][j]}")
+                        logging.debug(f"[Failure-Recover] {str(sw_l[1-i].city)} in {self.best_paths[sw_l[i].city][j]}")
                         # Find the first route with out the failed link
                         for p in self.all_available_path[sw_l[i].city][j]:
-                            if sw_l[1-i].city not in p[0]:
+
+                            if (sw_l[1-i].city == p[0][-1]):
+                                # The failed link is directly connected to the destination
                                 dst_sw = self.switches[j]
-                                mpls_path = self.build_failure_rerout(p[0])
-                                sw_l[i].table_add("LFA_REP_tbl", f"lfa_replace_{len(p[0])}_hop", [dst_sw.host.ip], mpls_path)
-                                action_name = f"lfa_replace_{len(p[0])}_hop"
+                                mpls_path = list(map(str, self.mpls_path_rebuild(self.all_available_path[sw_l[i].city][j][1][0])[::-1]))
+                                sw_l[i].table_add("LFA_REP_tbl", f"lfa_replace_{len(mpls_path)}_hop", [dst_sw.host.ip], mpls_path)
+                                action_name = f"lfa_replace_{len(mpls_path)}_hop"
                                 match_keys = [dst_sw.host.ip]
                                 logging.debug(f"[Failure-Recover] [{str(sw_l[i].city)}] -> [{str(dst_sw.city)}] Path Change table_add LFA_REP_tbl {action_name} {match_keys} {mpls_path}")
+                                break
+
+                            if sw_l[1-i].city not in p[0]:
+                                dst_sw = self.switches[j]
+                                mpls_path = list(map(str, self.mpls_path_rebuild(p[0])[::-1]))
+                                sw_l[i].table_add("LFA_REP_tbl", f"lfa_replace_{len(p[0]) - 1}_hop", [dst_sw.host.ip], mpls_path)
+                                action_name = f"lfa_replace_{len(p[0]) - 1}_hop"
+                                match_keys = [dst_sw.host.ip]
+                                logging.debug(f"[Failure-Recover] [{str(sw_l[i].city)}] -> [{str(dst_sw.city)}] Path Change table_add LFA_REP_tbl {action_name} {match_keys} {mpls_path}")
+                                break
                     else:
                         # Keep the original route
                         path = self.best_paths[sw_l[i].city][j]
                         dst_sw = self.switches[j]
-                        mpls_path = self.build_failure_rerout(path)
-                        sw_l[i].table_add("LFA_REP_tbl", f"lfa_replace_{len(path)}_hop", [dst_sw.host.ip], mpls_path)
-                        action_name = f"lfa_replace_{len(p[0])}_hop"
-                        match_keys = [dst_sw.host.ip]
-                        logging.debug(f"[Failure-Recover] [{str(sw_l[i].city)}] -> [{str(dst_sw.city)}] Path Change table_add LFA_REP_tbl {action_name} {match_keys} {mpls_path}")
+                        mpls_path = list(map(str, self.mpls_path_rebuild(path)[::-1]))
+                        sw_l[i].table_add("LFA_REP_tbl", f"lfa_replace_{len(path) - 1}_hop", [dst_sw.host.ip], mpls_path)
+                        action_name = f"lfa_replace_{len(path) - 1}_hop"
+                        match_keys = [str(dst_sw.host.ip)]
+                        logging.debug(f"[Failure-Recover] [{str(sw_l[i].city)}] -> [{str(dst_sw.city)}] Path remains, table_add LFA_REP_tbl {action_name} {match_keys} {mpls_path}")
 
+    def send_link_update_message(self, sw1: Switch, sw2: Switch):
+        failed_port_1, failed_port_2 = sw1.sw_links[sw2.city]['interfaces']
+        port_index = sw1.sw_links[sw2.city]['port']
+        packet = self.build_nop_packet(port_index, 1, sw1, sw2)
+
+        for value in sw1.sw_links.values():
+            try_port_1, try_port_2 = value['interfaces']
+            logging.debug(f"[NOP-MESSAGE] [{str(sw1)}] Sent Link failed packet to {try_port_1}")
+            skt = socket.socket(socket.AF_PACKET, socket.SOCK_RAW)
+            skt.bind((try_port_1, 0))
+            logging.debug(f"[NOP-MESSAGE] [{str(sw1)}] -> [{str(sw2)}]: Sniffing {try_port_1}")
+            try:
+                skt.send(packet)
+                break
+            except OSError:
+                skt.close()
+                logging.debug(f"[NOP-MESSAGE] [{str(sw1)}] -> [{str(sw2)}]: Sending to {try_port_1} failed, try another one")
 
     def has_failure(self, pong: Pong, ports: list):
         sw2 = pong.sw
@@ -717,12 +757,13 @@ class Controller(object):
                 logging.debug(f"Get a failure from {str(sw1)} -> {str(sw2)} weights {self.weights[sw1.city][sw2.city]} {self.weights[sw2.city][sw1.city]}")
                 self.weights[sw1.city][sw2.city] = 0xFFFF
                 self.weights[sw2.city][sw1.city] = 0xFFFF
-                # TODO: 1. Send Linkstate message to both dataplane
-                link_sender = Nop(port, 1, sw2, sw1)
-                # link_sender.start()
+                
+                self.send_link_update_message(sw1, sw2)
+                self.send_link_update_message(sw2, sw1)
+
                 self.build_failure_rerout(sw2, sw1)
-                self.best_paths = self.cal_best_paths()
-                self.build_mpls_fec()
+                # self.best_paths = self.cal_best_paths()
+                # self.build_mpls_fec()
 
         
 
