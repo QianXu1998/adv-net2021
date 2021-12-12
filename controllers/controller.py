@@ -412,8 +412,6 @@ class Controller(object):
 
         # ipdb.set_trace()
 
-        # self.add_reservation("AMS_h0", "PAR_h0", ['AMS', 'LON', 'PAR'], 40, 1)
-        # self.add_reservation("PAR_h0", "AMS_h0", ['PAR','LON', 'AMS'], 40, 1)
 
     def pprint_topo(self):
         for sw in self.switches:

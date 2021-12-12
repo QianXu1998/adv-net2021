@@ -473,25 +473,7 @@ control MyIngress(inout headers hdr,
     // Define the failure handling table
     action lfa_replace_1_hop(label_t label_1) {
         // First Pop the whole MPLS label stack, no switch statements are allowed in an action!!!
-        if (hdr.mpls[0].index == 1) {
-            hdr.mpls.pop_front(1);
-        } else if (hdr.mpls[0].index == 2) {
-            hdr.mpls.pop_front(2);
-        } else if (hdr.mpls[0].index == 3) {
-            hdr.mpls.pop_front(3);
-        } else if (hdr.mpls[0].index == 4) {
-            hdr.mpls.pop_front(4);
-        } else if (hdr.mpls[0].index == 5) {
-            hdr.mpls.pop_front(5);
-        } else if (hdr.mpls[0].index == 6) {
-            hdr.mpls.pop_front(6);
-        } else if (hdr.mpls[0].index == 7) {
-            hdr.mpls.pop_front(7);
-        } else if (hdr.mpls[0].index == 8) {
-            hdr.mpls.pop_front(8);
-        } else if (hdr.mpls[0].index == 9) {
-            hdr.mpls.pop_front(9);
-        }
+        hdr.mpls.pop_front(9);
 
         // Invoke the mpls building function
         mpls_ingress_1_hop(label_1);
@@ -499,25 +481,7 @@ control MyIngress(inout headers hdr,
 
     action lfa_replace_2_hop(label_t label_1, label_t label_2) {
         // First Pop the whole MPLS label stack, no switch statements are allowed in an action!!!
-        if (hdr.mpls[0].index == 1) {
-            hdr.mpls.pop_front(1);
-        } else if (hdr.mpls[0].index == 2) {
-            hdr.mpls.pop_front(2);
-        } else if (hdr.mpls[0].index == 3) {
-            hdr.mpls.pop_front(3);
-        } else if (hdr.mpls[0].index == 4) {
-            hdr.mpls.pop_front(4);
-        } else if (hdr.mpls[0].index == 5) {
-            hdr.mpls.pop_front(5);
-        } else if (hdr.mpls[0].index == 6) {
-            hdr.mpls.pop_front(6);
-        } else if (hdr.mpls[0].index == 7) {
-            hdr.mpls.pop_front(7);
-        } else if (hdr.mpls[0].index == 8) {
-            hdr.mpls.pop_front(8);
-        } else if (hdr.mpls[0].index == 9) {
-            hdr.mpls.pop_front(9);
-        }
+        hdr.mpls.pop_front(9);
 
         // Invoke the mpls building function
         mpls_ingress_2_hop(label_1, label_2);
@@ -525,25 +489,7 @@ control MyIngress(inout headers hdr,
 
     action lfa_replace_3_hop(label_t label_1, label_t label_2, label_t label_3) {
         // First Pop the whole MPLS label stack, no switch statements are allowed in an action!!!
-        if (hdr.mpls[0].index == 1) {
-            hdr.mpls.pop_front(1);
-        } else if (hdr.mpls[0].index == 2) {
-            hdr.mpls.pop_front(2);
-        } else if (hdr.mpls[0].index == 3) {
-            hdr.mpls.pop_front(3);
-        } else if (hdr.mpls[0].index == 4) {
-            hdr.mpls.pop_front(4);
-        } else if (hdr.mpls[0].index == 5) {
-            hdr.mpls.pop_front(5);
-        } else if (hdr.mpls[0].index == 6) {
-            hdr.mpls.pop_front(6);
-        } else if (hdr.mpls[0].index == 7) {
-            hdr.mpls.pop_front(7);
-        } else if (hdr.mpls[0].index == 8) {
-            hdr.mpls.pop_front(8);
-        } else if (hdr.mpls[0].index == 9) {
-            hdr.mpls.pop_front(9);
-        }
+        hdr.mpls.pop_front(9);
 
         // Invoke the mpls building function
         mpls_ingress_3_hop(label_1, label_2, label_3);
@@ -551,25 +497,7 @@ control MyIngress(inout headers hdr,
 
     action lfa_replace_4_hop(label_t label_1, label_t label_2, label_t label_3, label_t label_4) {
         // First Pop the whole MPLS label stack, no switch statements are allowed in an action!!!
-        if (hdr.mpls[0].index == 1) {
-            hdr.mpls.pop_front(1);
-        } else if (hdr.mpls[0].index == 2) {
-            hdr.mpls.pop_front(2);
-        } else if (hdr.mpls[0].index == 3) {
-            hdr.mpls.pop_front(3);
-        } else if (hdr.mpls[0].index == 4) {
-            hdr.mpls.pop_front(4);
-        } else if (hdr.mpls[0].index == 5) {
-            hdr.mpls.pop_front(5);
-        } else if (hdr.mpls[0].index == 6) {
-            hdr.mpls.pop_front(6);
-        } else if (hdr.mpls[0].index == 7) {
-            hdr.mpls.pop_front(7);
-        } else if (hdr.mpls[0].index == 8) {
-            hdr.mpls.pop_front(8);
-        } else if (hdr.mpls[0].index == 9) {
-            hdr.mpls.pop_front(9);
-        }
+        hdr.mpls.pop_front(9);
 
         // Invoke the mpls building function
         mpls_ingress_4_hop(label_1, label_2, label_3, label_4);
@@ -577,25 +505,7 @@ control MyIngress(inout headers hdr,
 
     action lfa_replace_5_hop(label_t label_1, label_t label_2, label_t label_3, label_t label_4, label_t label_5) {
         // First Pop the whole MPLS label stack, no switch statements are allowed in an action!!!
-        if (hdr.mpls[0].index == 1) {
-            hdr.mpls.pop_front(1);
-        } else if (hdr.mpls[0].index == 2) {
-            hdr.mpls.pop_front(2);
-        } else if (hdr.mpls[0].index == 3) {
-            hdr.mpls.pop_front(3);
-        } else if (hdr.mpls[0].index == 4) {
-            hdr.mpls.pop_front(4);
-        } else if (hdr.mpls[0].index == 5) {
-            hdr.mpls.pop_front(5);
-        } else if (hdr.mpls[0].index == 6) {
-            hdr.mpls.pop_front(6);
-        } else if (hdr.mpls[0].index == 7) {
-            hdr.mpls.pop_front(7);
-        } else if (hdr.mpls[0].index == 8) {
-            hdr.mpls.pop_front(8);
-        } else if (hdr.mpls[0].index == 9) {
-            hdr.mpls.pop_front(9);
-        }
+        hdr.mpls.pop_front(9);
 
         // Invoke the mpls building function
         mpls_ingress_5_hop(label_1, label_2, label_3, label_4, label_5);
@@ -603,25 +513,7 @@ control MyIngress(inout headers hdr,
 
     action lfa_replace_6_hop(label_t label_1, label_t label_2, label_t label_3, label_t label_4, label_t label_5, label_t label_6) {
         // First Pop the whole MPLS label stack, no switch statements are allowed in an action!!!
-        if (hdr.mpls[0].index == 1) {
-            hdr.mpls.pop_front(1);
-        } else if (hdr.mpls[0].index == 2) {
-            hdr.mpls.pop_front(2);
-        } else if (hdr.mpls[0].index == 3) {
-            hdr.mpls.pop_front(3);
-        } else if (hdr.mpls[0].index == 4) {
-            hdr.mpls.pop_front(4);
-        } else if (hdr.mpls[0].index == 5) {
-            hdr.mpls.pop_front(5);
-        } else if (hdr.mpls[0].index == 6) {
-            hdr.mpls.pop_front(6);
-        } else if (hdr.mpls[0].index == 7) {
-            hdr.mpls.pop_front(7);
-        } else if (hdr.mpls[0].index == 8) {
-            hdr.mpls.pop_front(8);
-        } else if (hdr.mpls[0].index == 9) {
-            hdr.mpls.pop_front(9);
-        }
+        hdr.mpls.pop_front(9);
 
         // Invoke the mpls building function
         mpls_ingress_6_hop(label_1, label_2, label_3, label_4, label_5, label_6);
@@ -629,25 +521,7 @@ control MyIngress(inout headers hdr,
 
     action lfa_replace_7_hop(label_t label_1, label_t label_2, label_t label_3, label_t label_4, label_t label_5, label_t label_6, label_t label_7) {
         // First Pop the whole MPLS label stack, no switch statements are allowed in an action!!!
-        if (hdr.mpls[0].index == 1) {
-            hdr.mpls.pop_front(1);
-        } else if (hdr.mpls[0].index == 2) {
-            hdr.mpls.pop_front(2);
-        } else if (hdr.mpls[0].index == 3) {
-            hdr.mpls.pop_front(3);
-        } else if (hdr.mpls[0].index == 4) {
-            hdr.mpls.pop_front(4);
-        } else if (hdr.mpls[0].index == 5) {
-            hdr.mpls.pop_front(5);
-        } else if (hdr.mpls[0].index == 6) {
-            hdr.mpls.pop_front(6);
-        } else if (hdr.mpls[0].index == 7) {
-            hdr.mpls.pop_front(7);
-        } else if (hdr.mpls[0].index == 8) {
-            hdr.mpls.pop_front(8);
-        } else if (hdr.mpls[0].index == 9) {
-            hdr.mpls.pop_front(9);
-        }
+        hdr.mpls.pop_front(9);
 
         // Invoke the mpls building function
         mpls_ingress_7_hop(label_1, label_2, label_3, label_4, label_5, label_6, label_7);
@@ -655,25 +529,7 @@ control MyIngress(inout headers hdr,
 
     action lfa_replace_8_hop(label_t label_1, label_t label_2, label_t label_3, label_t label_4, label_t label_5, label_t label_6, label_t label_7, label_t label_8) {
         // First Pop the whole MPLS label stack, no switch statements are allowed in an action!!!
-        if (hdr.mpls[0].index == 1) {
-            hdr.mpls.pop_front(1);
-        } else if (hdr.mpls[0].index == 2) {
-            hdr.mpls.pop_front(2);
-        } else if (hdr.mpls[0].index == 3) {
-            hdr.mpls.pop_front(3);
-        } else if (hdr.mpls[0].index == 4) {
-            hdr.mpls.pop_front(4);
-        } else if (hdr.mpls[0].index == 5) {
-            hdr.mpls.pop_front(5);
-        } else if (hdr.mpls[0].index == 6) {
-            hdr.mpls.pop_front(6);
-        } else if (hdr.mpls[0].index == 7) {
-            hdr.mpls.pop_front(7);
-        } else if (hdr.mpls[0].index == 8) {
-            hdr.mpls.pop_front(8);
-        } else if (hdr.mpls[0].index == 9) {
-            hdr.mpls.pop_front(9);
-        }
+        hdr.mpls.pop_front(9);
 
         // Invoke the mpls building function
         mpls_ingress_8_hop(label_1, label_2, label_3, label_4, label_5, label_6, label_7, label_8);
@@ -681,25 +537,7 @@ control MyIngress(inout headers hdr,
 
     action lfa_replace_9_hop(label_t label_1, label_t label_2, label_t label_3, label_t label_4, label_t label_5, label_t label_6, label_t label_7, label_t label_8, label_t label_9) {
         // First Pop the whole MPLS label stack, no switch statements are allowed in an action!!!
-        if (hdr.mpls[0].index == 1) {
-            hdr.mpls.pop_front(1);
-        } else if (hdr.mpls[0].index == 2) {
-            hdr.mpls.pop_front(2);
-        } else if (hdr.mpls[0].index == 3) {
-            hdr.mpls.pop_front(3);
-        } else if (hdr.mpls[0].index == 4) {
-            hdr.mpls.pop_front(4);
-        } else if (hdr.mpls[0].index == 5) {
-            hdr.mpls.pop_front(5);
-        } else if (hdr.mpls[0].index == 6) {
-            hdr.mpls.pop_front(6);
-        } else if (hdr.mpls[0].index == 7) {
-            hdr.mpls.pop_front(7);
-        } else if (hdr.mpls[0].index == 8) {
-            hdr.mpls.pop_front(8);
-        } else if (hdr.mpls[0].index == 9) {
-            hdr.mpls.pop_front(9);
-        }
+        hdr.mpls.pop_front(9);
 
         // Invoke the mpls building function
         mpls_ingress_9_hop(label_1, label_2, label_3, label_4, label_5, label_6, label_7, label_8, label_9);
