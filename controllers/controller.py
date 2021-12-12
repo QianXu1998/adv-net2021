@@ -637,6 +637,7 @@ class Controller(object):
                     self.weights[city][neigh_city] = float(attrs['delay'][:-2])
                     self.weights[neigh_city][city] = float(attrs['delay'][:-2])
         
+        self.initial_weights = copy.deepcopy(self.weights)
         self.pprint_topo()
 
     def connect_to_switches(self):
@@ -736,9 +737,9 @@ class Controller(object):
                 return
             
             logging.debug(f"Failure recovery from {str(sw1)} -> {str(sw2)} weights {self.weights[sw1.city][sw2.city]} {self.weights[sw2.city][sw1.city]}")
-            self.weights[sw1.city][sw2.city] = initial_weights[sw1.city][sw2.city]
+            self.weights[sw1.city][sw2.city] = self.initial_weights[sw1.city][sw2.city]
             #logging.debug(f"2 Failure recovery from {str(sw1)} -> {str(sw2)} weights {self.weights[sw1.city][sw2.city]} {self.weights[sw2.city][sw1.city]} {initial_weights[sw1.city][sw2.city]} {initial_weights[sw2.city][sw1.city]}")
-            self.weights[sw2.city][sw1.city] = initial_weights[sw2.city][sw1.city]
+            self.weights[sw2.city][sw1.city] = self.initial_weights[sw2.city][sw1.city]
             #logging.debug(f"3 Failure recovery from {str(sw1)} -> {str(sw2)} weights {self.weights[sw1.city][sw2.city]} {self.weights[sw2.city][sw1.city]}")
             self.best_paths = self.cal_best_paths()
             self.build_mpls_fec()
