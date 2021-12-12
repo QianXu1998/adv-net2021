@@ -8,7 +8,7 @@
 
 #define N_PORTS 8
 
-// Define Linkstate Register
+// Define Linkstate Register, used to indicate failure, 0 = Fine, 1 = Failed
 register<bit<1>>(N_PORTS) linkState;
 
 /*************************************************************************
@@ -29,6 +29,10 @@ control MyIngress(inout headers hdr,
 
     action drop() {
         mark_to_drop(standard_metadata);
+    }
+
+    action read_port(bit<9> port_index) {
+        linkState.read(meta.linkState, (bit<32>)port_index);
     }
 
     action ipv4_forward(macAddr_t dstAddr, egressSpec_t port) {
@@ -437,6 +441,7 @@ control MyIngress(inout headers hdr,
         hdr.ethernet.dstAddr = dstAddr;
 
         standard_metadata.egress_spec = port;
+        read_port(standard_metadata.egress_spec);
 
         hdr.mpls[1].ttl = hdr.mpls[0].ttl - 1;
         hdr.mpls[1].index = hdr.mpls[1].index - 1;
@@ -454,6 +459,7 @@ control MyIngress(inout headers hdr,
 
         standard_metadata.egress_spec = port;
         hdr.mpls.push_front(9);
+        read_port(standard_metadata.egress_spec);
     }
 
     table mpls_tbl {
@@ -472,7 +478,7 @@ control MyIngress(inout headers hdr,
 
     // Define the failure handling table
     action lfa_replace_1_hop(label_t label_1) {
-        // First Pop the whole MPLS label stack, no switch statements are allowed in an action!!!
+        // First Pop the whole MPLS label stack
         hdr.mpls.pop_front(9);
 
         // Invoke the mpls building function
@@ -480,7 +486,7 @@ control MyIngress(inout headers hdr,
     }
 
     action lfa_replace_2_hop(label_t label_1, label_t label_2) {
-        // First Pop the whole MPLS label stack, no switch statements are allowed in an action!!!
+        // First Pop the whole MPLS label stack
         hdr.mpls.pop_front(9);
 
         // Invoke the mpls building function
@@ -488,7 +494,7 @@ control MyIngress(inout headers hdr,
     }
 
     action lfa_replace_3_hop(label_t label_1, label_t label_2, label_t label_3) {
-        // First Pop the whole MPLS label stack, no switch statements are allowed in an action!!!
+        // First Pop the whole MPLS label stack
         hdr.mpls.pop_front(9);
 
         // Invoke the mpls building function
@@ -496,7 +502,7 @@ control MyIngress(inout headers hdr,
     }
 
     action lfa_replace_4_hop(label_t label_1, label_t label_2, label_t label_3, label_t label_4) {
-        // First Pop the whole MPLS label stack, no switch statements are allowed in an action!!!
+        // First Pop the whole MPLS label stack
         hdr.mpls.pop_front(9);
 
         // Invoke the mpls building function
@@ -504,7 +510,7 @@ control MyIngress(inout headers hdr,
     }
 
     action lfa_replace_5_hop(label_t label_1, label_t label_2, label_t label_3, label_t label_4, label_t label_5) {
-        // First Pop the whole MPLS label stack, no switch statements are allowed in an action!!!
+        // First Pop the whole MPLS label stack
         hdr.mpls.pop_front(9);
 
         // Invoke the mpls building function
@@ -512,7 +518,7 @@ control MyIngress(inout headers hdr,
     }
 
     action lfa_replace_6_hop(label_t label_1, label_t label_2, label_t label_3, label_t label_4, label_t label_5, label_t label_6) {
-        // First Pop the whole MPLS label stack, no switch statements are allowed in an action!!!
+        // First Pop the whole MPLS label stack
         hdr.mpls.pop_front(9);
 
         // Invoke the mpls building function
@@ -520,7 +526,7 @@ control MyIngress(inout headers hdr,
     }
 
     action lfa_replace_7_hop(label_t label_1, label_t label_2, label_t label_3, label_t label_4, label_t label_5, label_t label_6, label_t label_7) {
-        // First Pop the whole MPLS label stack, no switch statements are allowed in an action!!!
+        // First Pop the whole MPLS label stack
         hdr.mpls.pop_front(9);
 
         // Invoke the mpls building function
@@ -528,7 +534,7 @@ control MyIngress(inout headers hdr,
     }
 
     action lfa_replace_8_hop(label_t label_1, label_t label_2, label_t label_3, label_t label_4, label_t label_5, label_t label_6, label_t label_7, label_t label_8) {
-        // First Pop the whole MPLS label stack, no switch statements are allowed in an action!!!
+        // First Pop the whole MPLS label stack
         hdr.mpls.pop_front(9);
 
         // Invoke the mpls building function
@@ -536,7 +542,7 @@ control MyIngress(inout headers hdr,
     }
 
     action lfa_replace_9_hop(label_t label_1, label_t label_2, label_t label_3, label_t label_4, label_t label_5, label_t label_6, label_t label_7, label_t label_8, label_t label_9) {
-        // First Pop the whole MPLS label stack, no switch statements are allowed in an action!!!
+        // First Pop the whole MPLS label stack
         hdr.mpls.pop_front(9);
 
         // Invoke the mpls building function
@@ -545,7 +551,7 @@ control MyIngress(inout headers hdr,
 
     table LFA_REP_tbl {
         key = {
-            hdr.ipv4.srcAddr: lpm;
+            // hdr.ipv4.srcAddr: lpm;
             hdr.ipv4.dstAddr: exact;
         }
         actions = {
@@ -564,6 +570,25 @@ control MyIngress(inout headers hdr,
         size = 256;
     }
 
+    // Define link update table
+    action update_link() {
+        linkState.write((bit<32>)hdr.link_state.port, hdr.link_state.value);
+    }
+
+    table lfa_mpls_tbl {
+        key = {
+            hdr.mpls[0].label: exact;
+            hdr.mpls[0].s: exact;
+        }
+        actions = {
+            mpls_forward;
+            penultimate;
+            NoAction;
+        }
+        default_action = NoAction();
+        size = 256;
+    }
+
     apply {
         /* Ingress Pipeline Control Logic */
         if (hdr.heart.isValid()) {
@@ -576,15 +601,21 @@ control MyIngress(inout headers hdr,
                 digest<digest_t>(1, meta.hb);
                 mark_to_drop(standard_metadata);
             }
+        } else if (hdr.link_state.isValid()) {
+            update_link();
         } else {
             if(hdr.ipv4.isValid()){
                 FEC_tbl.apply();
             }
-            if(meta.linkState > 0){
-                LFA_REP_tbl.apply();
-            }
             if(hdr.mpls[0].isValid()){
                 mpls_tbl.apply();
+            }
+            // This part can be optimized , waste one cycle of manipulating the packet
+            if(meta.linkState > 0){
+                LFA_REP_tbl.apply();
+                if(hdr.mpls[0].isValid()){
+                    lfa_mpls_tbl.apply();
+                }
             }
         }
     }

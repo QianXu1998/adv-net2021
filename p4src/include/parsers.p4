@@ -17,12 +17,18 @@ parser MyParser(packet_in packet,
             TYPE_IPV4: parse_ipv4;
             TYPE_MPLS: parse_mpls;
             TYPE_HEART: parse_heart;
+            TYPE_LINK: parse_link_update;
             default: accept;
         }
     }
 
     state parse_heart {
         packet.extract(hdr.heart);
+        transition accept;
+    }
+
+    state parse_link_update {
+        packet.extract(hdr.link_state);
         transition accept;
     }
 

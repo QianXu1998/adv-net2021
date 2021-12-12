@@ -8,6 +8,7 @@
 const bit<16> TYPE_IPV4 = 0x800;
 const bit<16> TYPE_MPLS = 0x8847;
 const bit<16> TYPE_HEART = 0x1926;
+const bit<16> TYPE_LINK = 0x2020;
 
 // Define headers
 typedef bit<9>  egressSpec_t;
@@ -34,6 +35,11 @@ header heart_t {
     bit<9>    port;
     bit<1>    from_cp;
     bit<6>    padding;
+}
+
+header link_state_t {
+    bit<7> port; // At most 8 ports
+    bit<1> value;
 }
 
 header ipv4_t {
@@ -67,6 +73,7 @@ struct metadata {
 struct headers {
 	ethernet_t                    ethernet;
     heart_t                       heart;
+    link_state_t                  link_state;
 	mpls_t[CONST_MAX_HOPS]        mpls;
 	ipv4_t                        ipv4;
 }

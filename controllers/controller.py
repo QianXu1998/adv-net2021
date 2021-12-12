@@ -233,6 +233,53 @@ class Host:
     def __str__(self) -> str:
         return f"{str(self.city_sw)}_h0"
 
+class Nop(threading.Thread):
+    """
+        Detect a link failure , send a packet to the controller to update it
+    """
+
+    def __init__(self, port_index, port_state, sw1: Switch, sw2: Switch):
+        super().__init__()
+        self.sw1 = sw1
+        self.sw2 = sw2
+        self.port_index = port_index
+        self.port_state = port_state
+    
+    def build_link_state_1(self):
+        s1_port, s1_mac, s2_port, s2_mac = self.sw1.get_link_to(self.sw2.city)
+        bs = b""
+        bs += b"".join(map(binascii.unhexlify, s2_mac.split(":")))
+        bs += b"".join(map(binascii.unhexlify, s1_mac.split(":")))
+        bs += struct.pack(">H", 0x2020)
+        bs += struct.pack(">H", (self.port_index << 1) | (self.port_state))
+
+        return bs
+    
+    def build_link_state_2(self):
+        s1_port, s1_mac, s2_port, s2_mac = self.sw1.get_link_to(self.sw2.city)
+        bs = b""
+        bs += b"".join(map(binascii.unhexlify, s1_mac.split(":")))
+        bs += b"".join(map(binascii.unhexlify, s2_mac.split(":")))
+        bs += struct.pack(">H", 0x2020)
+        bs += struct.pack(">H", (self.port_index << 1) | (self.port_state))
+
+        return bs
+
+    def run(self):
+        inf1, inf2 = self.sw1.sw_links[self.sw2.city]['interfaces']
+
+        logging.debug(f"[NOP-MESSAGE] [{str(self.sw1)}] Sent Link failed packet to {inf1}")
+        skt = socket.socket(socket.AF_PACKET, socket.SOCK_RAW)
+        skt.bind((inf1, 0))
+        bs = self.build_link_state_1
+        logging.debug(f"[NOP-MESSAGE] [{str(self.sw1)}] -> [{str(self.sw2)}]: Sniffing {inf1}")
+        try:
+            skt.send(bs)
+            logging.debug(f"[NOP-MESSAGE] [{str(self.sw1)}] Sent packet to {inf1}")
+        except OSError:
+            skt.close()
+
+
 class Ping(threading.Thread):
 
     def __init__(self, sw1: Switch, sw2: Switch, interval: float):
@@ -383,6 +430,7 @@ class Controller(object):
         self.links_capacity = [ [0 for __ in range(16)] for _ in range(16) ]
         self.weights = copy.deepcopy(initial_weights)
         self.switches = [Switch(City(i)) for i in range(16)]
+        self.all_available_path = []
         self.init()
 
     def parse_inputs(self):
@@ -462,10 +510,14 @@ class Controller(object):
 
                 # maybe optimize??
                 sw1.table_add("mpls_tbl", "mpls_forward", [ str(c1_port), "0" ], [c2_mac, str(c1_port)])
+                sw1.table_add("lfa_mpls_tbl", "mpls_forward", [ str(c1_port), "0" ], [c2_mac, str(c1_port)])
                 sw1.table_add("mpls_tbl", "penultimate", [ str(c1_port), "1" ], [c2_mac, str(c1_port)])
+                sw1.table_add("lfa_mpls_tbl", "penultimate", [ str(c1_port), "1" ], [c2_mac, str(c1_port)])
 
     def cal_best_paths(self):
         paths = self.cal_paths()
+
+        self.all_available_path = copy.deepcopy(paths) # Saved the computed available paths
 
         best_paths = [ [ () for j in range(16) ] for i in range(16) ]
 
@@ -588,6 +640,54 @@ class Controller(object):
                 if city1 not in self.weights[city2]:
                     logging.warning(f"Reverse weight doesn't exist for {city2} -> {city1}, setting it to {w}")
                     self.weights[city2][city1] = w
+    
+    def mpls_path_rebuild(self, path):
+        mpls_ports = []
+
+        for i in range(len(path) - 1):
+            cur = path[i]
+            next = path[i + 1]
+            cur_port, cur_mac, next_port, next_mac = self.switches[cur].get_link_to(next)
+            mpls_ports.append(cur_port)
+
+        return mpls_ports
+
+    def build_failure_rerout(self, sw1_wf: Switch, sw2_wf: Switch):
+        """ Reroute the traffic when failures are detected
+        """
+        sw_l = []
+        sw_l.append(sw1_wf)
+        sw_l.append(sw2_wf)
+
+        logging.debug(f"[Failure-Recover] Link between {sw1_wf.city} -> {sw2_wf.city} failed")
+        logging.debug(f"[Failure-Recover] Recompute routing paths")
+        
+        # Rebuild all routes avoiding the failed link
+        for i in range(2):
+            for j in range(16):
+                if(j != sw_l[i].city):
+                    # Check whether from swi_wf.city to j uses the failed link
+                    if(sw_l[1-i].city in self.best_paths[sw_l[i].city][j]):
+                        logging.debug(f"[Failure-Recover] {sw_l[1-i].city} in {self.best_paths[sw_l[i].city][j]}")
+                        # Find the first route with out the failed link
+                        for p in self.all_available_path[sw_l[i].city][j]:
+                            if sw_l[1-i].city not in p[0]:
+                                dst_sw = self.switches[j]
+                                mpls_path = self.build_failure_rerout(p[0])
+                                sw_l[i].table_add("LFA_REP_tbl", f"lfa_replace_{len(p[0])}_hop", [dst_sw.host.ip], mpls_path)
+                                action_name = f"lfa_replace_{len(p[0])}_hop"
+                                match_keys = [dst_sw.host.ip]
+                                logging.debug(f"[Failure-Recover] [{str(sw_l[i].city)}] -> [{str(dst_sw.city)}] Path Change table_add LFA_REP_tbl {action_name} {match_keys} {mpls_path}")
+                    else:
+                        # Keep the original route
+                        path = self.best_paths[sw_l[i].city][j]
+                        dst_sw = self.switches[j]
+                        mpls_path = self.build_failure_rerout(path)
+                        sw_l[i].table_add("LFA_REP_tbl", f"lfa_replace_{len(path)}_hop", [dst_sw.host.ip], mpls_path)
+                        action_name = f"lfa_replace_{len(p[0])}_hop"
+                        match_keys = [dst_sw.host.ip]
+                        logging.debug(f"[Failure-Recover] [{str(sw_l[i].city)}] -> [{str(dst_sw.city)}] Path Change table_add LFA_REP_tbl {action_name} {match_keys} {mpls_path}")
+
 
     def has_failure(self, pong: Pong, ports: list):
         sw2 = pong.sw
@@ -601,7 +701,10 @@ class Controller(object):
                 logging.debug(f"Get a failure from {str(sw1)} -> {str(sw2)} weights {self.weights[sw1.city][sw2.city]} {self.weights[sw2.city][sw1.city]}")
                 self.weights[sw1.city][sw2.city] = 0xFFFF
                 self.weights[sw2.city][sw1.city] = 0xFFFF
-
+                # TODO: 1. Send Linkstate message to both dataplane
+                link_sender = Nop(port, 1, sw2, sw1)
+                # link_sender.start()
+                self.build_failure_rerout(sw2, sw1)
                 self.best_paths = self.cal_best_paths()
                 self.build_mpls_fec()
 
