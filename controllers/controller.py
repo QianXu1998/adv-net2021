@@ -253,7 +253,7 @@ class Nop(threading.Thread):
         bs += b"".join(map(binascii.unhexlify, s2_mac.split(":")))
         bs += b"".join(map(binascii.unhexlify, s1_mac.split(":")))
         bs += struct.pack(">H", 0x2020)
-        bs += struct.pack(">H", (self.port_index << 1) | (self.port_state))
+        bs += struct.pack(">H", (self.port_index << 9) | (self.port_state << 8))
 
         return bs
     
@@ -516,6 +516,7 @@ class Controller(object):
             c1 = sw1.city
 
             sw1.table_add("FEC_tbl", "ipv4_forward", ["0.0.0.0/0", sw1.host.ip], [sw1.host.mac, str(sw1.host.sw_port)])
+            # sw1.table_add("LFA_REP_tbl", "ipv4_forward", ["0.0.0.0/0", sw1.host.ip], [sw1.host.mac, str(sw1.host.sw_port)])
 
             
             for c2 in sw1.sw_links:
@@ -526,6 +527,48 @@ class Controller(object):
                 sw1.table_add("lfa_mpls_tbl", "mpls_forward", [ str(c1_port), "0" ], [c2_mac, str(c1_port)])
                 sw1.table_add("mpls_tbl", "penultimate", [ str(c1_port), "1" ], [c2_mac, str(c1_port)])
                 sw1.table_add("lfa_mpls_tbl", "penultimate", [ str(c1_port), "1" ], [c2_mac, str(c1_port)])
+
+    def fullfil_link_capcaity(self, path: tuple, req: int):
+        for i in range(len(path)-1):
+            c1 = path[i]
+            c2 = path[i+1]
+            if self.links_capacity[c1][c2] < req:
+                return False
+        
+        return True
+    
+    def sub_link_capacity(self, c1: City, c2: City, val: int):
+        self.links_capacity[c1][c2] -= val
+        self.links_capacity[c2][c1] -= val
+    
+    def sub_path_link_capcity(self, path: tuple, val):
+        for i in range(len(path)-1):
+            c1 = path[i]
+            c2 = path[i+1]
+            self.sub_link_capacity(c1, c2, val)
+    
+    def sub_path_if_fullfilled(self, path: tuple, req: int):
+        if self.fullfil_link_capcaity(path, req):
+            self.sub_path_link_capcity(path, req)
+            return True
+        else:
+            return False
+
+    def parse_speed(self, spd: str):
+        spd = spd.lower()
+        if spd.endswith("mbps"):
+            pl = 1000
+        else:
+            pl = 1
+        
+        spd_num = ""
+        for c in spd:
+            if c in ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]:
+                spd_num += c
+            else:
+                break
+        
+        return int(spd_num) * pl
 
     def cal_best_paths(self):
         paths = self.cal_paths()
@@ -545,10 +588,39 @@ class Controller(object):
                     for p in paths[src_city][dst_city]:
                         if target_city in p[0]:
                             best_paths[src_city][dst_city] = p[0]
+                            best_paths[dst_city][src_city] = p[0]
                             logging.debug(f"Select the best path based on sla {str(src_city)} -> {str(target_city)} -> {str(dst_city)}: {p[0]}")
                             break
                 except (KeyError, IndexError):
                     logging.exception("")
+
+        for fl in self.flows:
+            c1 = city_maps[fl['src'][:3]]
+            c2 = city_maps[fl['dst'][:3]]
+            if best_paths[c1][c2] != ():
+                if fl['protocol'] == 'udp':
+                    rt = self.parse_speed(fl['rate'])
+                else:
+                    rt = self.parse_speed(fl['size'])
+                all_paths_with_weights = paths[c1][c2]
+
+                for ps, _ in all_paths_with_weights:
+                    if self.sub_path_if_fullfilled(ps, rt):
+                        best_paths[c1][c2] = ps
+                        best_paths[c2][c1] = ps
+        
+        for i in range(16):
+            for j in range(16):
+                if i != j:
+                    c1 = City(i)
+                    c2 = City(j)
+                    if best_paths[c1][c2] != ():
+                        all_paths_with_weights = paths[c1][c2]
+
+                        for ps, _ in all_paths_with_weights:
+                            if self.sub_path_if_fullfilled(ps, 10000 // 2):
+                                best_paths[c1][c2] = ps
+                                best_paths[c2][c1] = ps
 
         return [ [ paths[i][j][0][0] if best_paths[i][j] == () and len(paths[i][j]) != 0  else best_paths[i][j] for j in range(16) ] for i in range(16) ]
 
@@ -636,6 +708,8 @@ class Controller(object):
                     self.links_capacity[neigh_city][city] = bw
                     self.weights[city][neigh_city] = float(attrs['delay'][:-2])
                     self.weights[neigh_city][city] = float(attrs['delay'][:-2])
+                    self.links_capacity[city][neigh_city] = 10000
+                    self.links_capacity[neigh_city][city] = 10000
         
         self.initial_weights = copy.deepcopy(self.weights)
         self.pprint_topo()
@@ -758,12 +832,12 @@ class Controller(object):
                 self.weights[sw1.city][sw2.city] = 0xFFFF
                 self.weights[sw2.city][sw1.city] = 0xFFFF
                 
-                self.send_link_update_message(sw1, sw2)
-                self.send_link_update_message(sw2, sw1)
+                # self.send_link_update_message(sw1, sw2)
+                # self.send_link_update_message(sw2, sw1)
 
-                self.build_failure_rerout(sw2, sw1)
-                # self.best_paths = self.cal_best_paths()
-                # self.build_mpls_fec()
+                # self.build_failure_rerout(sw2, sw1)
+                self.best_paths = self.cal_best_paths()
+                self.build_mpls_fec()
 
         
 

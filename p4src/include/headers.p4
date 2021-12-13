@@ -25,10 +25,10 @@ header ethernet_t {
 // Header definition for MPLS
 header mpls_t {
 	bit<20>  label;
-	bit<4>   index;  // Experimental Use
+	bit<2>   exp;  // Experimental Use
+    bit<1>   failure_indication;
 	bit<1>   s;    // Bottom of the stack
 	bit<8>   ttl;
-    bit<7>   padding; 
 }
 
 header heart_t {
@@ -40,6 +40,7 @@ header heart_t {
 header link_state_t {
     bit<7> port; // At most 8 ports
     bit<1> value;
+    bit<8> padding;
 }
 
 header ipv4_t {
@@ -66,7 +67,7 @@ struct digest_t {
 // Instantiate metadata fields
 struct metadata {
 	digest_t hb;
-    bit<1> linkState;
+    bit<1> link_State;
 }
 
 // Instantiate packet headers
