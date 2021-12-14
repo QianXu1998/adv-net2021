@@ -10,7 +10,6 @@
 
 // Define Linkstate Register, used to indicate failure, 0 = Fine, 1 = Failed
 register<bit<1>>(N_PORTS) linkState;
-register<bit<1>>(1) failed_link;
 
 /*************************************************************************
 ************   C H E C K S U M    V E R I F I C A T I O N   *************
@@ -27,6 +26,9 @@ control MyVerifyChecksum(inout headers hdr, inout metadata meta) {
 control MyIngress(inout headers hdr,
                   inout metadata meta,
                   inout standard_metadata_t standard_metadata) {
+
+    /* Define Dirtect Meter(Attached to tables) */
+    direct_meter<bit<2>>(MeterType.bytes) rate_limiting_meter;
 
     action drop() {
         mark_to_drop(standard_metadata);
@@ -66,7 +68,7 @@ control MyIngress(inout headers hdr,
 
     action read_port(bit<9> port_index) {
         linkState.read(meta.link_State, (bit<32>)port_index);
-        // failed_link.read(meta.link_State, 0);
+        
     }
 
     action ipv4_forward(macAddr_t dstAddr, egressSpec_t port) {
@@ -84,6 +86,8 @@ control MyIngress(inout headers hdr,
     // Build label stack in LER
     action mpls_ingress_1_hop(label_t label_1) {
 
+        rate_limiting_meter.read(meta.meter_color);
+
         hdr.ethernet.etherType = TYPE_MPLS;
 
         hdr.mpls.push_front(1);
@@ -94,52 +98,53 @@ control MyIngress(inout headers hdr,
     }
 
     action mpls_ingress_2_hop(label_t label_1, label_t label_2) {
+        
+        rate_limiting_meter.read(meta.meter_color);
 
         hdr.ethernet.etherType = TYPE_MPLS;
 
         hdr.mpls.push_front(1);
         hdr.mpls[0].setValid();
         hdr.mpls[0].label = label_1;
-        // hdr.mpls[0].index = 1;
         hdr.mpls[0].ttl = hdr.ipv4.ttl - 1;
         hdr.mpls[0].s = 1;
 
         hdr.mpls.push_front(1);
         hdr.mpls[0].setValid();
         hdr.mpls[0].label = label_2;
-        // hdr.mpls[0].index = 2;
         hdr.mpls[0].ttl = hdr.ipv4.ttl - 1;
         hdr.mpls[0].s = 0;
     }
 
     action mpls_ingress_3_hop(label_t label_1, label_t label_2, label_t label_3) {
 
+        rate_limiting_meter.read(meta.meter_color);
+        
         hdr.ethernet.etherType = TYPE_MPLS;
 
         hdr.mpls.push_front(1);
         hdr.mpls[0].setValid();
         hdr.mpls[0].label = label_1;
-        // hdr.mpls[0].index = 1;
         hdr.mpls[0].ttl = hdr.ipv4.ttl - 1;
         hdr.mpls[0].s = 1;
 
         hdr.mpls.push_front(1);
         hdr.mpls[0].setValid();
         hdr.mpls[0].label = label_2;
-        // hdr.mpls[0].index = 2;
         hdr.mpls[0].ttl = hdr.ipv4.ttl - 1;
         hdr.mpls[0].s = 0;
 
         hdr.mpls.push_front(1);
         hdr.mpls[0].setValid();
         hdr.mpls[0].label = label_3;
-        // hdr.mpls[0].index = 3;
         hdr.mpls[0].ttl = hdr.ipv4.ttl - 1;
         hdr.mpls[0].s = 0;
     }
 
     action mpls_ingress_4_hop(label_t label_1, label_t label_2, label_t label_3, label_t label_4) {
 
+        rate_limiting_meter.read(meta.meter_color);
+        
         hdr.ethernet.etherType = TYPE_MPLS;
 
         hdr.mpls.push_front(1);
@@ -173,6 +178,8 @@ control MyIngress(inout headers hdr,
 
     action mpls_ingress_5_hop(label_t label_1, label_t label_2, label_t label_3, label_t label_4, label_t label_5) {
 
+        rate_limiting_meter.read(meta.meter_color);
+        
         hdr.ethernet.etherType = TYPE_MPLS;
 
         hdr.mpls.push_front(1);
@@ -212,7 +219,7 @@ control MyIngress(inout headers hdr,
     }
 
     action mpls_ingress_6_hop(label_t label_1, label_t label_2, label_t label_3, label_t label_4, label_t label_5, label_t label_6) {
-        // rsvp_meter.read(meta.meter_color);
+        rate_limiting_meter.read(meta.meter_color);
 
         hdr.ethernet.etherType = TYPE_MPLS;
 
@@ -260,7 +267,7 @@ control MyIngress(inout headers hdr,
     }
 
     action mpls_ingress_7_hop(label_t label_1, label_t label_2, label_t label_3, label_t label_4, label_t label_5, label_t label_6, label_t label_7) {
-        // rsvp_meter.read(meta.meter_color);
+        rate_limiting_meter.read(meta.meter_color);
 
         hdr.ethernet.etherType = TYPE_MPLS;
 
@@ -315,7 +322,7 @@ control MyIngress(inout headers hdr,
     }
 
     action mpls_ingress_8_hop(label_t label_1, label_t label_2, label_t label_3, label_t label_4, label_t label_5, label_t label_6, label_t label_7, label_t label_8) {
-        // rsvp_meter.read(meta.meter_color);
+        rate_limiting_meter.read(meta.meter_color);
 
         hdr.ethernet.etherType = TYPE_MPLS;
 
@@ -377,7 +384,7 @@ control MyIngress(inout headers hdr,
     }
 
     action mpls_ingress_9_hop(label_t label_1, label_t label_2, label_t label_3, label_t label_4, label_t label_5, label_t label_6, label_t label_7, label_t label_8, label_t label_9) {
-        // rsvp_meter.read(meta.meter_color);
+        rate_limiting_meter.read(meta.meter_color);
 
         hdr.ethernet.etherType = TYPE_MPLS;
 
@@ -465,6 +472,7 @@ control MyIngress(inout headers hdr,
             NoAction;
         }
         default_action = NoAction();
+        meters = rate_limiting_meter;
         size = 256;
     }
 
@@ -476,7 +484,6 @@ control MyIngress(inout headers hdr,
         standard_metadata.egress_spec = port;
         read_port(standard_metadata.egress_spec);
         hdr.mpls[1].failure_indication = meta.link_State;
-        // failed_link.read(meta.link_State, 0);
 
         hdr.mpls[1].ttl = hdr.mpls[0].ttl - 1;
         // hdr.mpls[1].index = hdr.mpls[1].index - 1;
@@ -494,7 +501,6 @@ control MyIngress(inout headers hdr,
 
         standard_metadata.egress_spec = port;
         read_port(standard_metadata.egress_spec);
-        // failed_link.read(meta.link_State, 0);
         hdr.mpls.push_front(9);
         
     }
@@ -611,7 +617,6 @@ control MyIngress(inout headers hdr,
     // Define link update table
     action update_link() {
         linkState.write((bit<32>)hdr.link_state.port, hdr.link_state.value);
-        failed_link.write(0, hdr.link_state.value);
     }
 
     table lfa_mpls_tbl {
@@ -663,6 +668,11 @@ control MyIngress(inout headers hdr,
             //         lfa_mpls_tbl.apply();
             //     }
             // }
+        }
+
+        /* If meter is not green then drop (Can be optimized, may not be that strict) */
+        if (meta.meter_color != 0) {
+            drop();
         }
     }
 }

@@ -94,7 +94,8 @@ struct digest_t {
 // Instantiate metadata fields
 struct metadata {
 	digest_t hb;
-    bit<1> link_State;
+    bit<1>   link_State;
+    bit<2>   meter_color;  // Level of rate limiting
 }
 
 // Instantiate packet headers

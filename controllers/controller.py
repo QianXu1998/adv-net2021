@@ -365,6 +365,7 @@ class Controller(object):
         self.weights = { City(i) : {} for i in range(16) }
         self.switches = [Switch(City(i)) for i in range(16)]
         self.all_available_path = []
+        self.thrift_controller = None
         self.init()
 
     def parse_inputs(self):
@@ -429,6 +430,9 @@ class Controller(object):
         self.sanity_check()
         self.parse_inputs()
         self.allow_sla_flows()
+
+        # Test thrift_api
+        # self.thrift_controller = ThriftAPI(9100, "10.0.11.1/24", "none")
 
         # TODO: Build shortest paths by bw requests
         #self.paths = self.cal_paths()
@@ -540,6 +544,30 @@ class Controller(object):
         
         return int(spd_num) * pl
 
+    def get_meter_rates_from_bw(self, bw_committed, burst_size_committed, bw_peak, burst_size_peak):
+        """
+            This function calculates the rates parameter for meter_set_rates API,
+            rates is a list with the format : [(CIR, CBS), (PIR, PBS)]
+            CIR and PIR are the bucket filling rate per **microsecond**
+            e.g. CIR = 1 -> 1000000 Bytes/s 
+
+            Args:
+                bw (float): desired bandwidth in mbps
+                burst_size (int, can be optional): Max capacity of the meter bucket.
+            
+            Returns:
+                rates(Bytes/s)
+        """
+        rates = []
+        rates.append((0.125 * bw_committed, burst_size_committed))
+        rates.append((0.125 * bw_peak, burst_size_peak))
+
+        return rates
+
+    def set_direct_meter_bandwidth(self, meter_name, handle, bw_committed, bw_peak, burst_committed, burst_peak, sw: Switch):
+        rates = self.get_meter_rates_from_bw(bw_committed, burst_committed, bw_peak, burst_peak)
+        sw.controller.meter_set_rates(meter_name, handle, rates)
+        
     def cal_best_paths(self):
         paths = self.cal_paths()
 
@@ -707,7 +735,7 @@ class Controller(object):
         bs += b"".join(map(binascii.unhexlify, s2_mac.split(":")))
         bs += b"".join(map(binascii.unhexlify, s1_mac.split(":")))
         bs += struct.pack(">H", 0x2020)
-        bs += struct.pack(">H", (port_index << 1) | (port_state))
+        bs += struct.pack(">H", (port_index << 9) | (port_state << 8))
 
         return bs
 
@@ -805,6 +833,8 @@ class Controller(object):
                 # self.send_link_update_message(sw2, sw1)
 
                 # self.build_failure_rerout(sw2, sw1)
+                # register_read_value = sw2.controller.register_read('linkState')
+                # logging.debug(f"[REGISTER READ] linkState[{port} : {register_read_value}]")
                 self.best_paths = self.cal_best_paths()
                 self.build_mpls_fec()
 
