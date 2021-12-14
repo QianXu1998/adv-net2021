@@ -58,6 +58,33 @@ header ipv4_t {
     ip4Addr_t dstAddr;
 }
 
+header tcp_t{
+    bit<16> srcPort;
+    bit<16> dstPort;
+    bit<32> seqNo;
+    bit<32> ackNo;
+    bit<4>  dataOffset;
+    bit<4>  res;
+    bit<1>  cwr;
+    bit<1>  ece;
+    bit<1>  urg;
+    bit<1>  ack;
+    bit<1>  psh;
+    bit<1>  rst;
+    bit<1>  syn;
+    bit<1>  fin;
+    bit<16> window;
+    bit<16> checksum;
+    bit<16> urgentPtr;
+}
+
+header udp_t {
+    bit<16> srcPort;
+    bit<16> dstPort;
+    bit<16> len;
+    bit<16> checksum;
+}
+
 struct digest_t {
     bit<48> stamp;
     //bit<7> padding;
@@ -77,5 +104,7 @@ struct headers {
     link_state_t                  link_state;
 	mpls_t[CONST_MAX_HOPS]        mpls;
 	ipv4_t                        ipv4;
+    tcp_t                         tcp;
+    udp_t                         udp;
 }
 
