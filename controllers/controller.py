@@ -608,6 +608,7 @@ class Controller(object):
                     if self.sub_path_if_fullfilled(ps, rt):
                         best_paths[c1][c2] = ps
                         best_paths[c2][c1] = ps
+                        break
         
         for i in range(16):
             for j in range(16):
@@ -618,9 +619,10 @@ class Controller(object):
                         all_paths_with_weights = paths[c1][c2]
 
                         for ps, _ in all_paths_with_weights:
-                            if self.sub_path_if_fullfilled(ps, 10000 // 2):
+                            if self.sub_path_if_fullfilled(ps, 10000):
                                 best_paths[c1][c2] = ps
                                 best_paths[c2][c1] = ps
+                                break
 
         return [ [ paths[i][j][0][0] if best_paths[i][j] == () and len(paths[i][j]) != 0  else best_paths[i][j] for j in range(16) ] for i in range(16) ]
 
