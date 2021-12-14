@@ -22,7 +22,7 @@ from thrift.Thrift import TApplicationException
 import copy
 # TODO: remove logging to speedup
 logging.basicConfig(filename='/tmp/controller.log', format="[%(levelname)s] %(message)s", level=logging.DEBUG)
-
+#logging.basicConfig(format="[%(levelname)s] %(message)s", level=logging.ERROR)
 # [DEBUG] Switch: AMS
 # [DEBUG] Switch: BAR
 # [DEBUG] Switch: BER
