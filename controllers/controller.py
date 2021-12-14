@@ -365,7 +365,8 @@ class Pong(threading.Thread):
                 d = stamp - self.last_seen[port]
                 #logging.debug(f"[{str(self.sw)}]: d={d} port={port} stamp={stamp}")
                 if d > self.threshold :
-                    self.failure_cb(self, [port])
+                    pass
+                    #self.failure_cb(self, [port])
                 else:
                     self.good_cb(self, [port])
 
@@ -588,7 +589,6 @@ class Controller(object):
                     for p in paths[src_city][dst_city]:
                         if target_city in p[0]:
                             best_paths[src_city][dst_city] = p[0]
-                            best_paths[dst_city][src_city] = p[0]
                             logging.debug(f"Select the best path based on sla {str(src_city)} -> {str(target_city)} -> {str(dst_city)}: {p[0]}")
                             break
                 except (KeyError, IndexError):
@@ -597,7 +597,7 @@ class Controller(object):
         for fl in self.flows:
             c1 = city_maps[fl['src'][:3]]
             c2 = city_maps[fl['dst'][:3]]
-            if best_paths[c1][c2] != ():
+            if best_paths[c1][c2] == ():
                 if fl['protocol'] == 'udp':
                     rt = self.parse_speed(fl['rate'])
                 else:
@@ -607,21 +607,19 @@ class Controller(object):
                 for ps, _ in all_paths_with_weights:
                     if self.sub_path_if_fullfilled(ps, rt):
                         best_paths[c1][c2] = ps
-                        best_paths[c2][c1] = ps
                         break
         
         for i in range(16):
             for j in range(16):
-                if i != j:
+                if i < j:
                     c1 = City(i)
                     c2 = City(j)
-                    if best_paths[c1][c2] != ():
+                    if best_paths[c1][c2] == ():
                         all_paths_with_weights = paths[c1][c2]
 
                         for ps, _ in all_paths_with_weights:
                             if self.sub_path_if_fullfilled(ps, 10000):
                                 best_paths[c1][c2] = ps
-                                best_paths[c2][c1] = ps
                                 break
 
         return [ [ paths[i][j][0][0] if best_paths[i][j] == () and len(paths[i][j]) != 0  else best_paths[i][j] for j in range(16) ] for i in range(16) ]
@@ -874,8 +872,8 @@ class Controller(object):
                     ts.append(Ping(s1, s2, 0.1))
         
         for i in range(16):
-            ts.append(Pong(self.switches[i], 0.2, self.has_failure, self.no_failure))
-        #ts.append(Pong(self.switches[City.POR], 0.2, self.has_failure, self.no_failure))
+            ts.append(Pong(self.switches[i], 0.5, self.has_failure, self.no_failure))
+        #ts.append(Pong(self.switches[City.PAR], 0.3, self.has_failure, self.no_failure))
         
         for t in ts:
             t.start()
