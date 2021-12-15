@@ -483,7 +483,7 @@ control MyIngress(inout headers hdr,
 
         standard_metadata.egress_spec = port;
         read_port(standard_metadata.egress_spec);
-        hdr.mpls[1].failure_indication = meta.link_State;
+        // hdr.mpls[1].failure_indication = meta.link_State;
 
         hdr.mpls[1].ttl = hdr.mpls[0].ttl - 1;
         // hdr.mpls[1].index = hdr.mpls[1].index - 1;
@@ -598,7 +598,7 @@ control MyIngress(inout headers hdr,
             hdr.ipv4.dstAddr: exact;
         }
         actions = {
-            ipv4_forward;
+            // ipv4_forward;
             lfa_replace_1_hop;
             lfa_replace_2_hop;
             lfa_replace_3_hop;
@@ -615,9 +615,9 @@ control MyIngress(inout headers hdr,
     }
 
     // Define link update table
-    action update_link() {
-        linkState.write((bit<32>)hdr.link_state.port, hdr.link_state.value);
-    }
+    // action update_link() {
+    //     linkState.write((bit<32>)hdr.link_state.port, hdr.link_state.value);
+    // }
 
     table lfa_mpls_tbl {
         key = {
@@ -645,10 +645,7 @@ control MyIngress(inout headers hdr,
                 digest<digest_t>(1, meta.hb);
                 mark_to_drop(standard_metadata);
             }
-        } else if (hdr.link_state.isValid()) {
-            update_link();
-            mark_to_drop(standard_metadata);
-        } else {
+        }  else {
             if (hdr.tcp.isValid() && (!tcp_sla.apply().hit)) {
                 return;
             }

@@ -100,6 +100,7 @@ class Switch:
     def table_add(self, table_name, action_name, match_keys, action_params, prio=0):
         r = self.controller.table_add(table_name, action_name, match_keys, action_params, prio)
         logging.debug(f"[{str(self)}] table_add {table_name} {action_name} {match_keys} {action_params} {prio} ret={r}")
+        
         if r is None:
             logging.warning(f"[{str(self)}] table_add ret is None!")
         return r
@@ -123,6 +124,30 @@ class Switch:
                 logging.debug(f"[{str(self)}] -> [{str(dst)}] Path Change (hdl={hdl} last_hdl={last_hdl}):\n{last_path}\n{best_path}")
                 return hdl
             return last_hdl
+
+    def get_meter_rates_from_bw(self, bw_committed, burst_size_committed, bw_peak, burst_size_peak):
+        """
+            This function calculates the rates parameter for meter_set_rates API,
+            rates is a list with the format : [(CIR, CBS), (PIR, PBS)]
+            CIR and PIR are the bucket filling rate per **microsecond**
+            e.g. CIR = 1 -> 1000000 Bytes/s 
+
+            Args:
+                bw (float): desired bandwidth in mbps
+                burst_size (int, can be optional): Max capacity of the meter bucket.
+            
+            Returns:
+                rates(Bytes/s)
+        """
+        rates = []
+        rates.append((0.125 * bw_committed, burst_size_committed))
+        rates.append((0.125 * bw_peak, burst_size_peak))
+
+        return rates
+
+    def set_direct_meter_bandwidth(self, meter_name, handle, bw_committed, bw_peak, burst_committed, burst_peak):
+        rates = self.get_meter_rates_from_bw(bw_committed, burst_committed, bw_peak, burst_peak)
+        self.controller.meter_set_rates(meter_name, handle, rates)
 
     @property
     def host_port(self):
@@ -154,97 +179,6 @@ class Host:
 
     def __str__(self) -> str:
         return f"{str(self.city_sw)}_h0"
-
-class Nop(threading.Thread):
-    """
-        Detect a link failure , send a packet to the controller to update it
-    """
-
-    def __init__(self, port_index, port_state, sw1: Switch, sw2: Switch):
-        super().__init__()
-        self.sw1 = sw1
-        self.sw2 = sw2
-        self.port_index = port_index
-        self.port_state = port_state
-    
-    def build_link_state_1(self):
-        s1_port, s1_mac, s2_port, s2_mac = self.sw1.get_link_to(self.sw2.city)
-        bs = b""
-        bs += b"".join(map(binascii.unhexlify, s2_mac.split(":")))
-        bs += b"".join(map(binascii.unhexlify, s1_mac.split(":")))
-        bs += struct.pack(">H", 0x2020)
-        bs += struct.pack(">H", (self.port_index << 9) | (self.port_state << 8))
-
-        return bs
-    
-    def build_link_state_2(self):
-        s1_port, s1_mac, s2_port, s2_mac = self.sw1.get_link_to(self.sw2.city)
-        bs = b""
-        bs += b"".join(map(binascii.unhexlify, s1_mac.split(":")))
-        bs += b"".join(map(binascii.unhexlify, s2_mac.split(":")))
-        bs += struct.pack(">H", 0x2020)
-        bs += struct.pack(">H", (self.port_index << 1) | (self.port_state))
-
-        return bs
-
-    def run(self):
-        inf1, inf2 = self.sw1.sw_links[self.sw2.city]['interfaces']
-
-        logging.debug(f"[NOP-MESSAGE] [{str(self.sw1)}] Sent Link failed packet to {inf1}")
-        skt = socket.socket(socket.AF_PACKET, socket.SOCK_RAW)
-        skt.bind((inf1, 0))
-        bs = self.build_link_state_1()
-        logging.debug(f"[NOP-MESSAGE] [{str(self.sw1)}] -> [{str(self.sw2)}]: Sniffing {inf1}")
-        try:
-            skt.send(bs)
-            logging.debug(f"[NOP-MESSAGE] [{str(self.sw1)}] Sent packet to {inf1}")
-        except OSError:
-            skt.close()
-
-
-class Ping(threading.Thread):
-
-    def __init__(self, sw1: Switch, sw2: Switch, interval: float):
-        super().__init__()
-        # sw1 < sw2!
-        self.sw1 = sw1
-        self.sw2 = sw2
-        self.interval = interval
-
-    def build_hearbeat(self):
-        s1_port, s1_mac, _, s2_mac = self.sw1.get_link_to(self.sw2.city)
-        bs = b""
-        bs += b"".join(map(binascii.unhexlify, s2_mac.split(":")))
-        bs += b"".join(map(binascii.unhexlify, s1_mac.split(":")))
-        bs += struct.pack(">H", 0x1926)
-        bs += struct.pack(">H", (s1_port << 7) | (1 << 6))
-
-        return bs
-
-
-    def run(self):
-        try:
-            inf1, inf2 = self.sw1.sw_links[self.sw2.city]['interfaces']
-
-            while True:
-                skt = socket.socket(socket.AF_PACKET, socket.SOCK_RAW)
-
-                skt.bind((inf1, 0))
-                bs = self.build_hearbeat()
-                logging.debug(f"[{str(self.sw1)}] -> [{str(self.sw2)}]: Sniffing {inf1}")
-                while True:
-                    try:
-                        skt.send(bs)
-                        #logging.debug(f"[{str(self.sw1)}] Sent packet to {inf1}")
-                        time.sleep(self.interval)
-                    except OSError:
-                        skt.close()
-                        time.sleep(self.interval)
-                        break
-        except KeyboardInterrupt:
-            return
-        except Exception:
-            logging.exception("")
 
 
 class Pong(threading.Thread):
@@ -544,29 +478,6 @@ class Controller(object):
         
         return int(spd_num) * pl
 
-    def get_meter_rates_from_bw(self, bw_committed, burst_size_committed, bw_peak, burst_size_peak):
-        """
-            This function calculates the rates parameter for meter_set_rates API,
-            rates is a list with the format : [(CIR, CBS), (PIR, PBS)]
-            CIR and PIR are the bucket filling rate per **microsecond**
-            e.g. CIR = 1 -> 1000000 Bytes/s 
-
-            Args:
-                bw (float): desired bandwidth in mbps
-                burst_size (int, can be optional): Max capacity of the meter bucket.
-            
-            Returns:
-                rates(Bytes/s)
-        """
-        rates = []
-        rates.append((0.125 * bw_committed, burst_size_committed))
-        rates.append((0.125 * bw_peak, burst_size_peak))
-
-        return rates
-
-    def set_direct_meter_bandwidth(self, meter_name, handle, bw_committed, bw_peak, burst_committed, burst_peak, sw: Switch):
-        rates = self.get_meter_rates_from_bw(bw_committed, burst_committed, bw_peak, burst_peak)
-        sw.controller.meter_set_rates(meter_name, handle, rates)
         
     def cal_best_paths(self):
         paths = self.cal_paths()
@@ -788,6 +699,9 @@ class Controller(object):
                                 match_keys = [dst_sw.host.ip]
                                 logging.debug(f"[Failure-Recover] [{str(sw_l[i].city)}] -> [{str(dst_sw.city)}] Path Change table_add LFA_REP_tbl {action_name} {match_keys} {mpls_path}")
                                 break
+                else:
+                    # Match with ipv4_forward 
+                    sw_l[i].table_add("LFA_REP_tbl", "ipv4_forward")
                     # else:
                         # Keep the original route
                         # path = self.best_paths[sw_l[i].city][j]
@@ -798,23 +712,23 @@ class Controller(object):
                         # match_keys = [str(dst_sw.host.ip)]
                         # logging.debug(f"[Failure-Recover] [{str(sw_l[i].city)}] -> [{str(dst_sw.city)}] Path remains, table_add LFA_REP_tbl {action_name} {match_keys} {mpls_path}")
 
-    def send_link_update_message(self, sw1: Switch, sw2: Switch):
-        failed_port_1, failed_port_2 = sw1.sw_links[sw2.city]['interfaces']
-        port_index = sw1.sw_links[sw2.city]['port']
-        packet = self.build_nop_packet(port_index, 1, sw1, sw2)
+    # def send_link_update_message(self, sw1: Switch, sw2: Switch):
+    #     failed_port_1, failed_port_2 = sw1.sw_links[sw2.city]['interfaces']
+    #     port_index = sw1.sw_links[sw2.city]['port']
+    #     packet = self.build_nop_packet(port_index, 1, sw1, sw2)
 
-        for value in sw1.sw_links.values():
-            try_port_1, try_port_2 = value['interfaces']
-            logging.debug(f"[NOP-MESSAGE] [{str(sw1)}] Sent Link failed packet to {try_port_1}")
-            skt = socket.socket(socket.AF_PACKET, socket.SOCK_RAW)
-            skt.bind((try_port_1, 0))
-            logging.debug(f"[NOP-MESSAGE] [{str(sw1)}] -> [{str(sw2)}]: Sniffing {try_port_1}")
-            try:
-                skt.send(packet)
-                break
-            except OSError:
-                skt.close()
-                logging.debug(f"[NOP-MESSAGE] [{str(sw1)}] -> [{str(sw2)}]: Sending to {try_port_1} failed, try another one")
+    #     for value in sw1.sw_links.values():
+    #         try_port_1, try_port_2 = value['interfaces']
+    #         logging.debug(f"[NOP-MESSAGE] [{str(sw1)}] Sent Link failed packet to {try_port_1}")
+    #         skt = socket.socket(socket.AF_PACKET, socket.SOCK_RAW)
+    #         skt.bind((try_port_1, 0))
+    #         logging.debug(f"[NOP-MESSAGE] [{str(sw1)}] -> [{str(sw2)}]: Sniffing {try_port_1}")
+    #         try:
+    #             skt.send(packet)
+    #             break
+    #         except OSError:
+    #             skt.close()
+    #             logging.debug(f"[NOP-MESSAGE] [{str(sw1)}] -> [{str(sw2)}]: Sending to {try_port_1} failed, try another one")
 
     def has_failure(self, pong: Pong, ports: list):
         sw2 = pong.sw
@@ -829,20 +743,20 @@ class Controller(object):
                 self.weights[sw1.city][sw2.city] = 0xFFFF
                 self.weights[sw2.city][sw1.city] = 0xFFFF
                 
-                sw_port_index = sw1.sw_links[sw2.city]['port']
-                sw1.controller.register_write('linkState', sw_port_index, 1)
-                sw_port_index = sw2.sw_links[sw1.city]['port']
-                sw2.controller.register_write('linkState', sw_port_index, 1)
+                self.build_failure_rerout(sw2, sw1)
+                sw_port_index_1 = sw1.sw_links[sw2.city]['port']
+                sw1.controller.register_write('linkState', sw_port_index_1, 1)
+                sw_port_index_2 = sw2.sw_links[sw1.city]['port']
+                sw2.controller.register_write('linkState', sw_port_index_2, 1)
                 # self.send_link_update_message(sw1, sw2)
                 # self.send_link_update_message(sw2, sw1)
 
-                self.build_failure_rerout(sw2, sw1)
                 register_read_value = sw2.controller.register_read('linkState')
                 logging.debug(f"[REGISTER READ] linkState[{port} : {register_read_value}]")
                 register_read_value = self.switches[City.PAR].controller.register_read('linkState')
                 logging.debug(f"[REGISTER READ] {str(City.PAR)} : linkState[{register_read_value}]")
-                # self.best_paths = self.cal_best_paths()
-                # self.build_mpls_fec()
+                self.best_paths = self.cal_best_paths()
+                self.build_mpls_fec()
 
         
 

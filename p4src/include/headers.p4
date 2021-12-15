@@ -25,8 +25,7 @@ header ethernet_t {
 // Header definition for MPLS
 header mpls_t {
 	bit<20>  label;
-	bit<2>   exp;  // Experimental Use
-    bit<1>   failure_indication;
+	bit<3>   exp;  // Experimental Use
 	bit<1>   s;    // Bottom of the stack
 	bit<8>   ttl;
 }
@@ -37,11 +36,11 @@ header heart_t {
     bit<6>    padding;
 }
 
-header link_state_t {
-    bit<7> port; // At most 8 ports
-    bit<1> value;
-    bit<8> padding;
-}
+// header link_state_t {
+//     bit<7> port; // At most 8 ports
+//     bit<1> value;
+//     bit<8> padding;
+// }
 
 header ipv4_t {
     bit<4>    version;
@@ -102,7 +101,7 @@ struct metadata {
 struct headers {
 	ethernet_t                    ethernet;
     heart_t                       heart;
-    link_state_t                  link_state;
+    // link_state_t                  link_state;
 	mpls_t[CONST_MAX_HOPS]        mpls;
 	ipv4_t                        ipv4;
     tcp_t                         tcp;

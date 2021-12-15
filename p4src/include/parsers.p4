@@ -17,7 +17,7 @@ parser MyParser(packet_in packet,
             TYPE_IPV4: parse_ipv4;
             TYPE_MPLS: parse_mpls;
             TYPE_HEART: parse_heart;
-            TYPE_LINK: parse_link_update;
+            // TYPE_LINK: parse_link_update;
             default: accept;
         }
     }
@@ -27,10 +27,10 @@ parser MyParser(packet_in packet,
         transition accept;
     }
 
-    state parse_link_update {
-        packet.extract(hdr.link_state);
-        transition accept;
-    }
+    // state parse_link_update {
+    //     packet.extract(hdr.link_state);
+    //     transition accept;
+    // }
 
     state parse_mpls {
         packet.extract(hdr.mpls.next);
@@ -69,7 +69,7 @@ control MyDeparser(packet_out packet, in headers hdr) {
     apply {
         packet.emit(hdr.ethernet);
         packet.emit(hdr.heart);
-        packet.emit(hdr.link_state);
+        // packet.emit(hdr.link_state);
         packet.emit(hdr.mpls);
         packet.emit(hdr.ipv4);
         packet.emit(hdr.tcp);
