@@ -34,6 +34,38 @@ control MyIngress(inout headers hdr,
         mark_to_drop(standard_metadata);
     }
 
+    table tcp_sla {
+        key = {
+            standard_metadata.ingress_port: exact;
+            hdr.ipv4.dstAddr: lpm;
+            hdr.tcp.srcPort: range;
+            hdr.tcp.dstPort: range;
+        }
+
+        actions = {
+            drop;
+            NoAction;
+        }
+        default_action = drop();
+        size = 4096;
+    }
+
+    table udp_sla {
+        key = {
+            standard_metadata.ingress_port: exact;
+            hdr.ipv4.dstAddr: lpm;
+            hdr.udp.srcPort: range;
+            hdr.udp.dstPort: range;
+        }
+
+        actions = {
+            drop;
+            NoAction;
+        }
+        default_action = drop();
+        size = 4096;
+    }
+
     action read_port(bit<9> port_index) {
         linkState.read(meta.link_State, (bit<32>)port_index);
         
@@ -617,6 +649,12 @@ control MyIngress(inout headers hdr,
             update_link();
             mark_to_drop(standard_metadata);
         } else {
+            if (hdr.tcp.isValid() && (!tcp_sla.apply().hit)) {
+                return;
+            }
+            if (hdr.udp.isValid() && (!udp_sla.apply().hit)) {
+                return;
+            }
             if(hdr.ipv4.isValid()){
                 FEC_tbl.apply();
             }
@@ -624,12 +662,12 @@ control MyIngress(inout headers hdr,
                 mpls_tbl.apply();
             }
             // This part can be optimized , waste one cycle of manipulating the packet
-            if(meta.link_State > 0){
-                LFA_REP_tbl.apply();
-                if(hdr.mpls[0].isValid()){
-                    lfa_mpls_tbl.apply();
-                }
-            }
+            // if(meta.link_State > 0){
+            //     LFA_REP_tbl.apply();
+            //     if(hdr.mpls[0].isValid()){
+            //         lfa_mpls_tbl.apply();
+            //     }
+            // }
         }
 
         /* If meter is not green then drop (Can be optimized, may not be that strict) */

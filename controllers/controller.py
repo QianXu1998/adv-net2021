@@ -82,86 +82,6 @@ city_maps = {
     "REN" : City.REN,
 }
 
-# TODO: cal weights by delay?
-initial_weights = {
-    City.AMS : {
-        City.EIN : 1,
-        City.LON : 2,
-        City.FRA : 2,
-        City.PAR : 5
-    },
-    City.BAR : {
-        City.PAR : 6,
-        City.MAD : 4
-    },
-    City.BER : {
-        City.FRA : 3,
-        City.MUN : 4,
-        City.GLO : 1
-    },
-    City.BRI : {
-        City.LON : 1
-    },
-    City.EIN : {
-        City.AMS : 1
-    },
-    City.FRA : {
-        City.LON : 5,
-        City.AMS : 2,
-        City.PAR : 4,
-        City.MUN : 2,
-        City.BER : 3
-    },
-    City.GLO : {
-        City.LON : 1,
-        City.BRI : 1
-    },
-    City.LIL : {
-        City.PAR : 1
-    },
-    City.LIS : {
-        City.POR : 1,
-        City.LON : 9
-    },
-    City.LON : {
-        City.LIS : 9,
-        City.MAD : 8,
-        City.PAR : 3,
-        City.FRA : 5,
-        City.AMS : 2,
-        City.MAN : 1,
-        City.GLO : 1,
-        City.BRI : 1
-    },
-    City.MAD : {
-        City.POR : 4,
-        City.LON : 8,
-        City.BAR : 4
-    },
-    City.MAN : {
-        City.LON : 1
-    },
-    City.MUN : {
-        City.BER : 4,
-        City.FRA : 2
-    },
-    City.PAR : {
-        City.LIL : 1,
-        City.REN : 1,
-        City.AMS : 5,
-        City.FRA : 4,
-        City.BAR : 6,
-        City.LON : 3
-    },
-    City.POR : {
-        City.MAD : 4,
-        City.LIS : 1
-    },
-    City.REN : {
-        City.PAR : 1
-    }
-}
-
 class Switch:
 
     def __init__(self, city: City):
@@ -177,9 +97,9 @@ class Switch:
         next_sw = self.sw_links[city]['sw']
         return self.sw_links[city]['port'], self.sw_links[city]['mac'], next_sw.sw_links[self.city]['port'], next_sw.sw_links[self.city]['mac']
 
-    def table_add(self, table_name, action_name, match_keys, action_params):
-        r = self.controller.table_add(table_name, action_name, match_keys, action_params)
-        logging.debug(f"[{str(self)}] table_add {table_name} {action_name} {match_keys} {action_params} ret={r}")
+    def table_add(self, table_name, action_name, match_keys, action_params, prio=0):
+        r = self.controller.table_add(table_name, action_name, match_keys, action_params, prio)
+        logging.debug(f"[{str(self)}] table_add {table_name} {action_name} {match_keys} {action_params} {prio} ret={r}")
         if r is None:
             logging.warning(f"[{str(self)}] table_add ret is None!")
         return r
@@ -454,6 +374,54 @@ class Controller(object):
             self.slas = [make_sla(spec) for spec in rdr]
         self.flows = parse_traffic(self.base_traffic_file)
 
+    def parse_city_str(self, s: str):
+        if s is None:
+            return [City(i) for i in range(16)]
+        return [city_maps[s.split("_")[0]]]
+
+    def parse_port_range(self, tp: tuple):
+        l, r = tp
+        if l is None:
+            l = 0
+        else:
+            l = int(l)
+        if r is None:
+            r = 65535
+        else:
+            r = int(r)
+        
+        return (l, r)
+
+    def allow_sla_flows(self):
+        for sla_idx, sla in enumerate(self.slas):
+            src_cities = self.parse_city_str(sla.src)
+            dst_cities = self.parse_city_str(sla.dst)
+
+            src_l, src_r = self.parse_port_range(sla.sport)
+            dst_l, dst_r = self.parse_port_range(sla.dport)
+
+            prot = sla.protocol
+
+            if prot == "udp":
+                tname = "udp_sla"
+            else:
+                tname = "tcp_sla"
+
+            for src_city in src_cities:
+                sw1 = self.switches[src_city] # type: Switch
+                
+                for dst_city in dst_cities:
+                    if src_city != dst_city:
+                        sw2 = self.switches[dst_city] # type: Switch
+
+                        sw1.table_add(tname, "NoAction", [str(sw1.host.sw_port), sw2.host.lpm, f"{src_l}->{src_r}", f"{dst_l}->{dst_r}"], [], 1 + int(dst_city) + sla_idx * len(self.slas))
+                        sw2.table_add(tname, "NoAction", [str(sw2.host.sw_port), sw1.host.lpm, f"{dst_l}->{dst_r}", f"{src_l}->{src_r}"], [], 1 + int(dst_city) + sla_idx * len(self.slas))
+
+                for p in sw1.sw_ports.keys():
+                    sw1.table_add("tcp_sla", "NoAction", [str(p), "0.0.0.0/0", "0->65535", "0->65535"], [], 0)
+                    sw1.table_add("udp_sla", "NoAction", [str(p), "0.0.0.0/0", "0->65535", "0->65535"], [], 0)
+
+    
     def init(self):
         """Basic initialization. Connects to switches and resets state."""
         self.connect_to_switches()
@@ -461,6 +429,7 @@ class Controller(object):
         self.build_topo()
         self.sanity_check()
         self.parse_inputs()
+        self.allow_sla_flows()
 
         # Test thrift_api
         # self.thrift_controller = ThriftAPI(9100, "10.0.11.1/24", "none")
@@ -610,8 +579,8 @@ class Controller(object):
             if sla.type == "wp":
                 try:
                     target_city =  city_maps[sla.target]
-                    src_city = city_maps[sla.src.split("_")[0]]
-                    dst_city = city_maps[sla.dst.split("_")[0]]
+                    src_city = self.parse_city_str(sla.src)[0]
+                    dst_city = self.parse_city_str(sla.dst)[0]
 
                     # TODO: Optimize by ports?
                     for p in paths[src_city][dst_city]:
@@ -623,8 +592,8 @@ class Controller(object):
                     logging.exception("")
 
         for fl in self.flows:
-            c1 = city_maps[fl['src'][:3]]
-            c2 = city_maps[fl['dst'][:3]]
+            c1 = self.parse_city_str(fl['src'])[0]
+            c2 = self.parse_city_str(fl['dst'])[0]
             if best_paths[c1][c2] == ():
                 if fl['protocol'] == 'udp':
                     rt = self.parse_speed(fl['rate'])
