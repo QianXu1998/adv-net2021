@@ -699,9 +699,7 @@ class Controller(object):
                                 match_keys = [dst_sw.host.ip]
                                 logging.debug(f"[Failure-Recover] [{str(sw_l[i].city)}] -> [{str(dst_sw.city)}] Path Change table_add LFA_REP_tbl {action_name} {match_keys} {mpls_path}")
                                 break
-                else:
                     # Match with ipv4_forward 
-                    sw_l[i].table_add("LFA_REP_tbl", "ipv4_forward")
                     # else:
                         # Keep the original route
                         # path = self.best_paths[sw_l[i].city][j]
