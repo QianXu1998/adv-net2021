@@ -829,12 +829,12 @@ class Controller(object):
                 self.weights[sw1.city][sw2.city] = 0xFFFF
                 self.weights[sw2.city][sw1.city] = 0xFFFF
                 
-                # sw_port_index = sw1.sw_links[sw2.city]['port']
-                # sw1.controller.register_write('linkState', sw_port_index, 1)
-                # sw_port_index = sw2.sw_links[sw1.city]['port']
-                # sw2.controller.register_write('linkState', sw_port_index, 1)
-                self.send_link_update_message(sw1, sw2)
-                self.send_link_update_message(sw2, sw1)
+                sw_port_index = sw1.sw_links[sw2.city]['port']
+                sw1.controller.register_write('linkState', sw_port_index, 1)
+                sw_port_index = sw2.sw_links[sw1.city]['port']
+                sw2.controller.register_write('linkState', sw_port_index, 1)
+                # self.send_link_update_message(sw1, sw2)
+                # self.send_link_update_message(sw2, sw1)
 
                 self.build_failure_rerout(sw2, sw1)
                 register_read_value = sw2.controller.register_read('linkState')
