@@ -819,15 +819,15 @@ class Controller(object):
                                 match_keys = [dst_sw.host.ip]
                                 logging.debug(f"[Failure-Recover] [{str(sw_l[i].city)}] -> [{str(dst_sw.city)}] Path Change table_add LFA_REP_tbl {action_name} {match_keys} {mpls_path}")
                                 break
-                    else:
+                    # else:
                         # Keep the original route
-                        path = self.best_paths[sw_l[i].city][j]
-                        dst_sw = self.switches[j]
-                        mpls_path = list(map(str, self.mpls_path_rebuild(path)[::-1]))
-                        sw_l[i].table_add("LFA_REP_tbl", f"lfa_replace_{len(path) - 1}_hop", [dst_sw.host.ip], mpls_path)
-                        action_name = f"lfa_replace_{len(path) - 1}_hop"
-                        match_keys = [str(dst_sw.host.ip)]
-                        logging.debug(f"[Failure-Recover] [{str(sw_l[i].city)}] -> [{str(dst_sw.city)}] Path remains, table_add LFA_REP_tbl {action_name} {match_keys} {mpls_path}")
+                        # path = self.best_paths[sw_l[i].city][j]
+                        # dst_sw = self.switches[j]
+                        # mpls_path = list(map(str, self.mpls_path_rebuild(path)[::-1]))
+                        # sw_l[i].table_add("LFA_REP_tbl", f"lfa_replace_{len(path) - 1}_hop", [dst_sw.host.ip], mpls_path)
+                        # action_name = f"lfa_replace_{len(path) - 1}_hop"
+                        # match_keys = [str(dst_sw.host.ip)]
+                        # logging.debug(f"[Failure-Recover] [{str(sw_l[i].city)}] -> [{str(dst_sw.city)}] Path remains, table_add LFA_REP_tbl {action_name} {match_keys} {mpls_path}")
 
     def send_link_update_message(self, sw1: Switch, sw2: Switch):
         failed_port_1, failed_port_2 = sw1.sw_links[sw2.city]['interfaces']
@@ -860,14 +860,20 @@ class Controller(object):
                 self.weights[sw1.city][sw2.city] = 0xFFFF
                 self.weights[sw2.city][sw1.city] = 0xFFFF
                 
-                # self.send_link_update_message(sw1, sw2)
-                # self.send_link_update_message(sw2, sw1)
+                # sw_port_index = sw1.sw_links[sw2.city]['port']
+                # sw1.controller.register_write('linkState', sw_port_index, 1)
+                # sw_port_index = sw2.sw_links[sw1.city]['port']
+                # sw2.controller.register_write('linkState', sw_port_index, 1)
+                self.send_link_update_message(sw1, sw2)
+                self.send_link_update_message(sw2, sw1)
 
-                # self.build_failure_rerout(sw2, sw1)
-                # register_read_value = sw2.controller.register_read('linkState')
-                # logging.debug(f"[REGISTER READ] linkState[{port} : {register_read_value}]")
-                self.best_paths = self.cal_best_paths()
-                self.build_mpls_fec()
+                self.build_failure_rerout(sw2, sw1)
+                register_read_value = sw2.controller.register_read('linkState')
+                logging.debug(f"[REGISTER READ] linkState[{port} : {register_read_value}]")
+                register_read_value = self.switches[City.PAR].controller.register_read('linkState')
+                logging.debug(f"[REGISTER READ] {str(City.PAR)} : linkState[{register_read_value}]")
+                # self.best_paths = self.cal_best_paths()
+                # self.build_mpls_fec()
 
         
 
