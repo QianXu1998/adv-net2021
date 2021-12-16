@@ -92,6 +92,8 @@ class Switch:
         self.host = Host(self)
         self.controller = None # type: SimpleSwitchThriftAPI
         self.hosts_path = [ ( (), 0xFFFF ) for i in range(16) ]
+        self.failed_link = []
+        self.in_reroute_table = {}
 
     def get_link_to(self, city: City):
         #logging.debug(self.sw_links)
@@ -767,12 +769,28 @@ class Controller(object):
 
         return mpls_ports
 
+    def path_valid(self, path, sw1: Switch):
+        for i in range(len(sw1.failed_link)):
+            if sw1.failed_link[i] in path:
+                return False
+        return True
+
+    def path_direct_valid(self, path, sw1: Switch):
+        for i in range(len(sw1.failed_link) - 1):
+            if sw1.failed_link[i] in path:
+                return False
+        return True
+    
     def build_failure_rerout(self, sw1_wf: Switch, sw2_wf: Switch):
         """ Reroute the traffic when failures are detected
         """
         sw_l = []
         sw_l.append(sw1_wf)
         sw_l.append(sw2_wf)
+
+        # Add the failed link to sw.failed_link
+        sw1_wf.failed_link.append(sw2_wf.city)
+        sw2_wf.failed_link.append(sw1_wf.city)
 
         logging.debug(f"[Failure-Recover] Link between {str(sw1_wf.city)} -> {str(sw2_wf.city)} failed")
         logging.debug(f"[Failure-Recover] Recompute routing paths")
@@ -785,26 +803,55 @@ class Controller(object):
                     if(sw_l[1-i].city in self.best_paths[sw_l[i].city][j]):
                         logging.debug(f"[Failure-Recover] {str(sw_l[1-i].city)} in {self.best_paths[sw_l[i].city][j]}")
                         # Find the first route with out the failed link
+                        logging.debug(f"[Failure-Recover] failed_link of {str(sw_l[1-i].city)} : {sw_l[1-i].failed_link}")
                         for p in self.all_available_path[sw_l[i].city][j]:
-
+                            # Check the direct connect link
                             if (sw_l[1-i].city == p[0][-1]):
-                                # The failed link is directly connected to the destination
+                                if self.path_direct_valid(p[0], sw_l[i]):
+                                    # The failed link is directly connected to the destination
+                                    dst_sw = self.switches[j]
+                                    # Add dst ip to sw.in_reroute_table
+                                    if dst_sw.host.ip in sw_l[i].in_reroute_table:
+                                        # If the dst is already in the table
+                                        mpls_path = list(map(str, self.mpls_path_rebuild(p[0])[::-1]))
+                                        handle_1 = sw_l[i].table_modify("LFA_REP_tbl", sw_l[i].in_reroute_table[dst_sw.host.ip], f"lfa_replace_{len(p[0]) - 1}_hop", mpls_path)
+                                        # Store the handle of the table
+                                        sw_l[i].in_reroute_table[dst_sw.host.ip] = handle_1
+                                        action_name = f"lfa_replace_{len(p[0]) - 1}_hop"
+                                        match_keys = [dst_sw.host.ip]
+                                        logging.debug(f"[Failure-Recover] [{str(sw_l[i].city)}] -> [{str(dst_sw.city)}] Path Change table_modify LFA_REP_tbl {action_name} {match_keys} {mpls_path}")
+                                        break
+                                    else:
+                                        mpls_path = list(map(str, self.mpls_path_rebuild(p[0])[::-1]))
+                                        handle_1 = sw_l[i].table_add("LFA_REP_tbl", f"lfa_replace_{len(p[0]) - 1}_hop", [dst_sw.host.ip], mpls_path)
+                                        sw_l[i].in_reroute_table[dst_sw.host.ip] = handle_1
+                                        action_name = f"lfa_replace_{len(p[0]) - 1}_hop"
+                                        match_keys = [dst_sw.host.ip]
+                                        logging.debug(f"[Failure-Recover] [{str(sw_l[i].city)}] -> [{str(dst_sw.city)}] Path Change table_add LFA_REP_tbl {action_name} {match_keys} {mpls_path}")
+                                        break
+                            
+                            # Check the validity of the path
+                            if self.path_valid(p[0], sw_l[i]):
                                 dst_sw = self.switches[j]
-                                mpls_path = list(map(str, self.mpls_path_rebuild(self.all_available_path[sw_l[i].city][j][1][0])[::-1]))
-                                sw_l[i].table_add("LFA_REP_tbl", f"lfa_replace_{len(mpls_path)}_hop", [dst_sw.host.ip], mpls_path)
-                                action_name = f"lfa_replace_{len(mpls_path)}_hop"
-                                match_keys = [dst_sw.host.ip]
-                                logging.debug(f"[Failure-Recover] [{str(sw_l[i].city)}] -> [{str(dst_sw.city)}] Path Change table_add LFA_REP_tbl {action_name} {match_keys} {mpls_path}")
-                                break
-
-                            if sw_l[1-i].city not in p[0]:
-                                dst_sw = self.switches[j]
-                                mpls_path = list(map(str, self.mpls_path_rebuild(p[0])[::-1]))
-                                sw_l[i].table_add("LFA_REP_tbl", f"lfa_replace_{len(p[0]) - 1}_hop", [dst_sw.host.ip], mpls_path)
-                                action_name = f"lfa_replace_{len(p[0]) - 1}_hop"
-                                match_keys = [dst_sw.host.ip]
-                                logging.debug(f"[Failure-Recover] [{str(sw_l[i].city)}] -> [{str(dst_sw.city)}] Path Change table_add LFA_REP_tbl {action_name} {match_keys} {mpls_path}")
-                                break
+                                # Add dst ip to sw.in_reroute_table
+                                if dst_sw.host.ip in sw_l[i].in_reroute_table:
+                                    # If the dst is already in the table
+                                    mpls_path = list(map(str, self.mpls_path_rebuild(p[0])[::-1]))
+                                    handle_1 = sw_l[i].table_modify("LFA_REP_tbl", sw_l[i].in_reroute_table[dst_sw.host.ip], f"lfa_replace_{len(p[0]) - 1}_hop", mpls_path)
+                                    # Store the handle of the table
+                                    sw_l[i].in_reroute_table[dst_sw.host.ip] = handle_1
+                                    action_name = f"lfa_replace_{len(p[0]) - 1}_hop"
+                                    match_keys = [dst_sw.host.ip]
+                                    logging.debug(f"[Failure-Recover] [{str(sw_l[i].city)}] -> [{str(dst_sw.city)}] Path Change table_modify LFA_REP_tbl {action_name} {match_keys} {mpls_path}")
+                                    break
+                                else:
+                                    mpls_path = list(map(str, self.mpls_path_rebuild(p[0])[::-1]))
+                                    handle_1 = sw_l[i].table_add("LFA_REP_tbl", f"lfa_replace_{len(p[0]) - 1}_hop", [dst_sw.host.ip], mpls_path)
+                                    sw_l[i].in_reroute_table[dst_sw.host.ip] = handle_1
+                                    action_name = f"lfa_replace_{len(p[0]) - 1}_hop"
+                                    match_keys = [dst_sw.host.ip]
+                                    logging.debug(f"[Failure-Recover] [{str(sw_l[i].city)}] -> [{str(dst_sw.city)}] Path Change table_add LFA_REP_tbl {action_name} {match_keys} {mpls_path}")
+                                    break
                     # Match with ipv4_forward 
                     # else:
                         # Keep the original route
@@ -816,23 +863,7 @@ class Controller(object):
                         # match_keys = [str(dst_sw.host.ip)]
                         # logging.debug(f"[Failure-Recover] [{str(sw_l[i].city)}] -> [{str(dst_sw.city)}] Path remains, table_add LFA_REP_tbl {action_name} {match_keys} {mpls_path}")
 
-    # def send_link_update_message(self, sw1: Switch, sw2: Switch):
-    #     failed_port_1, failed_port_2 = sw1.sw_links[sw2.city]['interfaces']
-    #     port_index = sw1.sw_links[sw2.city]['port']
-    #     packet = self.build_nop_packet(port_index, 1, sw1, sw2)
 
-    #     for value in sw1.sw_links.values():
-    #         try_port_1, try_port_2 = value['interfaces']
-    #         logging.debug(f"[NOP-MESSAGE] [{str(sw1)}] Sent Link failed packet to {try_port_1}")
-    #         skt = socket.socket(socket.AF_PACKET, socket.SOCK_RAW)
-    #         skt.bind((try_port_1, 0))
-    #         logging.debug(f"[NOP-MESSAGE] [{str(sw1)}] -> [{str(sw2)}]: Sniffing {try_port_1}")
-    #         try:
-    #             skt.send(packet)
-    #             break
-    #         except OSError:
-    #             skt.close()
-    #             logging.debug(f"[NOP-MESSAGE] [{str(sw1)}] -> [{str(sw2)}]: Sending to {try_port_1} failed, try another one")
 
     def has_failure(self, pong: Pong, ports: list):
         sw2 = pong.sw
@@ -847,17 +878,14 @@ class Controller(object):
                 self.weights[sw1.city][sw2.city] = 0xFFFF
                 self.weights[sw2.city][sw1.city] = 0xFFFF
                 
-                self.build_failure_rerout(sw2, sw1)
-                sw_port_index_1 = sw1.sw_links[sw2.city]['port']
-                sw1.controller.register_write('linkState', sw_port_index_1, 1)
-                sw_port_index_2 = sw2.sw_links[sw1.city]['port']
-                sw2.controller.register_write('linkState', sw_port_index_2, 1)
-                # self.send_link_update_message(sw1, sw2)
-                # self.send_link_update_message(sw2, sw1)
+                # self.build_failure_rerout(sw2, sw1)
+                # Set register
+                # sw_port_index_1 = sw1.sw_links[sw2.city]['port']
+                # sw1.controller.register_write('linkState', sw_port_index_1, 1)
+                # sw_port_index_2 = sw2.sw_links[sw1.city]['port']
+                # sw2.controller.register_write('linkState', sw_port_index_2, 1)
 
                 register_read_value = sw2.controller.register_read('linkState')
-                logging.debug(f"[REGISTER READ] linkState[{port} : {register_read_value}]")
-                register_read_value = self.switches[City.PAR].controller.register_read('linkState')
                 logging.debug(f"[REGISTER READ] {str(City.PAR)} : linkState[{register_read_value}]")
                 self.best_paths = self.cal_best_paths()
                 self.build_mpls_fec()
@@ -879,6 +907,15 @@ class Controller(object):
             #logging.debug(f"2 Failure recovery from {str(sw1)} -> {str(sw2)} weights {self.weights[sw1.city][sw2.city]} {self.weights[sw2.city][sw1.city]} {initial_weights[sw1.city][sw2.city]} {initial_weights[sw2.city][sw1.city]}")
             self.weights[sw2.city][sw1.city] = self.initial_weights[sw2.city][sw1.city]
             #logging.debug(f"3 Failure recovery from {str(sw1)} -> {str(sw2)} weights {self.weights[sw1.city][sw2.city]} {self.weights[sw2.city][sw1.city]}")
+            # Set back register
+            # sw_port_index_1 = sw1.sw_links[sw2.city]['port']
+            # sw1.controller.register_write('linkState', sw_port_index_1, 0)
+            # sw_port_index_2 = sw2.sw_links[sw1.city]['port']
+            # sw2.controller.register_write('linkState', sw_port_index_2, 0)
+            # Update sw.failed_link list
+            # sw1.failed_link.remove(sw2.city)
+            # sw2.failed_link.remove(sw1.city)
+
             self.best_paths = self.cal_best_paths()
             self.build_mpls_fec()
 
