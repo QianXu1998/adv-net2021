@@ -17,6 +17,7 @@ import socket
 import nnpy
 from scapy.all import *
 from scapy.layers.l2 import Ether
+from scapy.layers.inet import IP, TCP, UDP
 from datetime import datetime
 from thrift.Thrift import TApplicationException
 import copy
@@ -165,6 +166,7 @@ class Host:
         self._lpm = None
         self._ip = None
         self.sw_port = None
+        self.sw_interface = None
     
     @property
     def lpm(self):
@@ -243,13 +245,12 @@ class Ping(threading.Thread):
 
 class Pong(threading.Thread):
 
-    def __init__(self, sw: Switch, threshold: float, failure_cb: callable, good_cb: callable, spd_cb: callable):
+    def __init__(self, sw: Switch, threshold: float, failure_cb: callable, good_cb: callable):
         super().__init__()
         # sw1 < sw2!
         self.sw = sw
         self.failure_cb = failure_cb
         self.good_cb = good_cb
-        self.spd_cb = spd_cb
         self.threshold = threshold
         self.latest_timestamp = 0
         self.last_seen = [ None for _ in range(12)]
@@ -281,40 +282,40 @@ class Pong(threading.Thread):
             self.last_seen[port] = stamp
 
 
-    def process_size(self, raw_ingress: list, raw_egress: list, now: float):
-        spds = []
+    # def process_size(self, raw_ingress: list, raw_egress: list, now: float):
+    #     spds = []
 
-        if self.last_spd_time is None:
-            self.last_spd_time = now
-            return []
+    #     if self.last_spd_time is None:
+    #         self.last_spd_time = now
+    #         return []
 
-        for port in range(len(raw_ingress)):
-            if port not in self.sw.sw_ports and port != self.sw.host.sw_port:
-                #spd.append((port, 0))
-                continue
+    #     for port in range(len(raw_ingress)):
+    #         if port not in self.sw.sw_ports and port != self.sw.host.sw_port:
+    #             #spd.append((port, 0))
+    #             continue
            
-            if self.last_ingress[port] is None:
-                self.last_ingress[port] = raw_ingress[port]
+    #         if self.last_ingress[port] is None:
+    #             self.last_ingress[port] = raw_ingress[port]
 
-            if self.last_egress[port] is None:
-                self.last_egress[port] = raw_egress[port]
+    #         if self.last_egress[port] is None:
+    #             self.last_egress[port] = raw_egress[port]
             
             
-            time_delta = now - self.last_spd_time
-            ingress_delta = raw_ingress[port] - self.last_ingress[port]
-            egress_delta = raw_egress[port] - self.last_egress[port]
-            ingress = ingress_delta / time_delta
-            egress = egress_delta / time_delta
-            #logging.debug(f"[{str(self.sw)}] delta={time_delta} ingress_delta={ingress_delta}")
+    #         time_delta = now - self.last_spd_time
+    #         ingress_delta = raw_ingress[port] - self.last_ingress[port]
+    #         egress_delta = raw_egress[port] - self.last_egress[port]
+    #         ingress = ingress_delta / time_delta
+    #         egress = egress_delta / time_delta
+    #         #logging.debug(f"[{str(self.sw)}] delta={time_delta} ingress_delta={ingress_delta}")
 
-            self.last_ingress[port] = raw_ingress[port]
-            self.last_egress[port] = raw_egress[port]
+    #         self.last_ingress[port] = raw_ingress[port]
+    #         self.last_egress[port] = raw_egress[port]
             
-            # B/s -> bps
-            spds.append((port, ingress * 8, egress * 8))
+    #         # B/s -> bps
+    #         spds.append((port, ingress * 8, egress * 8))
 
-        self.last_spd_time = now
-        return spds
+    #     self.last_spd_time = now
+    #     return spds
         #logging.debug(f"[{str(self.sw)}] spd={spds}")
 
     # def process(self, msg: bytes):
@@ -343,19 +344,19 @@ class Pong(threading.Thread):
                     #logging.debug(f"[{str(self.sw)}] recv {msg}")
                     # self.process(msg)
 
-                    now = datetime.now().timestamp()
-                    register_ingress = self.sw.controller.register_read("linkIngressSize")
-                    register_egress = self.sw.controller.register_read("linkEgressSize")
+                    # now = datetime.now().timestamp()
+                    # register_ingress = self.sw.controller.register_read("linkIngressSize")
+                    # register_egress = self.sw.controller.register_read("linkEgressSize")
                     register_stamps = self.sw.controller.register_read("linkStamp")
                     #logging.debug(f"[{str(self.sw)}] rs={rs}")
-                    spds = self.process_size(register_ingress, register_egress, now)
+                    # spds = self.process_size(register_ingress, register_egress, now)
 
                     # Call failure callbacks firstly
                     self.process_stamps(register_stamps)
 
                     # Then updates speeds in case there is some changes in routes
-                    if len(spds) != 0:
-                        self.spd_cb(self, spds)
+                    # if len(spds) != 0:
+                    #     self.spd_cb(self, spds)
                     #logging.debug(f"[{str(self.sw)}] seen={self.last_seen} lastest={self.latest_timestamp}")
                 except AssertionError:
                     #logging.debug(f"[{str(self.sw)}]")
@@ -389,6 +390,65 @@ class Pong(threading.Thread):
         except Exception:
             logging.exception("")
 
+# https://stackoverflow.com/questions/68267983/how-do-i-get-a-scapy-field-as-bytes
+def get_field_bytes(pkt, name):
+     fld, val = pkt.getfield_and_val(name)
+     return fld.i2m(pkt, val)
+
+class FlowMonitor(threading.Thread):
+
+    def __init__(self, sw: Switch, spd_cb: callable, interval=0.5):
+        super().__init__()
+        self.sw = sw
+        self.spd_cb = spd_cb
+        self.interval = interval
+        self.last_time = None
+        self.flows = {}
+
+    def parse(self, pkt: Packet):
+        
+
+        ip = pkt.getlayer(IP)
+
+        if ip is not None:
+            tcp = pkt.getlayer(TCP)
+            udp = pkt.getlayer(UDP)
+
+            if tcp is None and udp is None:
+                return
+            
+            if tcp is not None:
+                sport = tcp.sport
+                dport = tcp.dport
+            else:
+                sport = udp.sport
+                dport = udp.dport
+
+            # src_ip = get_field_bytes(ip, "src")
+            # dst_ip = get_field_bytes(ip, "dst")
+            src_ip = ip.src
+            dst_ip = ip.dst
+
+            fl = (src_ip, sport, dst_ip, dport)
+
+            if fl not in self.flows:
+                self.flows[fl] = 0
+
+            whole_size = len(pkt)
+            self.flows[fl] += whole_size
+        
+        now = datetime.now().timestamp()
+
+        if now - self.last_time > self.interval:
+            if len(self.flows) > 0:
+                self.spd_cb(self, { k: (v/(now - self.last_time))*8 for k, v in self.flows.items() })
+            self.last_time = now
+            self.flows = {}
+
+    def run(self):
+        intf = self.sw.host.sw_interface
+        self.last_time = datetime.now().timestamp()
+        sniff(iface=intf, prn=self.parse)
 
 class Controller(object):
 
@@ -702,6 +762,7 @@ class Controller(object):
                     sw.host.lpm = attrs['ip']
                     sw.host.mac = attrs['addr']
                     sw.host.sw_port = attrs['port_neigh']
+                    sw.host.sw_interface = attrs['intfName_neigh']
 
             for _, attrs in city_intfs.items():
                 if "delay" in attrs and attrs['node'] == city_name:
@@ -882,8 +943,8 @@ class Controller(object):
             self.best_paths = self.cal_best_paths()
             self.build_mpls_fec()
 
-    def rt_speed(self, pong: Pong, spd: list):
-        #logging.debug(f"[{str(pong.sw)}] spd={spd}")
+    def rt_speed(self, monitor: FlowMonitor, flows: dict):
+        logging.debug(f"[{str(monitor.sw)}] flows={flows}")
         pass
 
     def start_monitor(self):
@@ -902,7 +963,8 @@ class Controller(object):
                     ts.append(Ping(s2, s1, 0.1))
         
         for i in range(16):
-            ts.append(Pong(self.switches[i], 0.5, self.has_failure, self.no_failure, self.rt_speed))
+            ts.append(Pong(self.switches[i], 0.5, self.has_failure, self.no_failure))
+            ts.append(FlowMonitor(self.switches[i], self.rt_speed, 0.5))
         #ts.append(Pong(self.switches[City.AMS], 0.5, self.has_failure, self.no_failure, self.rt_speed))
         
         for t in ts:
