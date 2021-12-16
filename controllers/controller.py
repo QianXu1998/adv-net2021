@@ -82,6 +82,7 @@ city_maps = {
     "REN" : City.REN,
 }
 
+
 class Switch:
 
     def __init__(self, city: City):
@@ -180,6 +181,55 @@ class Host:
     def __str__(self) -> str:
         return f"{str(self.city_sw)}_h0"
 
+
+class Ping(threading.Thread):
+
+    def __init__(self, sw1: Switch, sw2: Switch, interval: float):
+        super().__init__()
+        # sw1 < sw2!
+        self.sw1 = sw1
+        self.sw2 = sw2
+        self.interval = interval
+
+    def build_hearbeat(self):
+        s1_port, s1_mac, _, s2_mac = self.sw1.get_link_to(self.sw2.city)
+        bs = b""
+        bs += b"".join(map(binascii.unhexlify, s2_mac.split(":")))
+        bs += b"".join(map(binascii.unhexlify, s1_mac.split(":")))
+        bs += struct.pack(">H", 0x1926)
+        bs += struct.pack(">H", (s1_port << 7) | (1 << 6))
+
+        return bs
+
+
+    def run(self):
+        try:
+            inf1, inf2 = self.sw1.sw_links[self.sw2.city]['interfaces']
+
+            while True:
+                skt = socket.socket(socket.AF_PACKET, socket.SOCK_RAW)
+
+                skt.bind((inf1, 0))
+                bs = self.build_hearbeat()
+                logging.debug(f"[{str(self.sw1)}] -> [{str(self.sw2)}]: Sniffing {inf1}")
+                while True:
+
+                    skt.bind((inf1, 0))
+                    bs = self.build_hearbeat()
+                    logging.debug(f"[{str(self.sw1)}] -> [{str(self.sw2)}]: Sniffing {inf1}")
+                    while True:
+                        try:
+                            skt.send(bs)
+                            #logging.debug(f"[{str(self.sw1)}] Sent packet to {inf1}")
+                            time.sleep(self.interval)
+                        except OSError:
+                            skt.close()
+                            time.sleep(self.interval)
+                            break
+        except KeyboardInterrupt:
+            return
+        except Exception:
+            logging.exception("")
 
 class Pong(threading.Thread):
 
