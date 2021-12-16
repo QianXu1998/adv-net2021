@@ -414,7 +414,10 @@ class FlowMonitor(threading.Thread):
 
         if now - self.last_time > self.interval:
             if len(self.flows) > 0:
-                self.spd_cb(self, { k: (v/(now - self.last_time))*8 for k, v in self.flows.items() })
+                try:
+                    self.spd_cb(self, { k: (v/(now - self.last_time))*8 for k, v in self.flows.items() })
+                except Exception:
+                    logging.exception(f"[{str(self.sw)}] Fail to call spd_cb")
             self.last_time = now
             self.flows = {}
 
@@ -1005,7 +1008,7 @@ class Controller(object):
         
         for i in range(16):
             ts.append(Pong(self.switches[i], 0.5, self.has_failure, self.no_failure))
-            ts.append(FlowMonitor(self.switches[i], self.rt_speed, 0.5))
+            ts.append(FlowMonitor(self.switches[i], self.rt_flows, 0.5))
             ts.append(LinkMonitor(self.rt_speed, 0.5))
         #ts.append(Pong(self.switches[City.AMS], 0.5, self.has_failure, self.no_failure, self.rt_speed))
         
