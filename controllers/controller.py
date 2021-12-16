@@ -226,9 +226,16 @@ class Ping(threading.Thread):
                             raise e
             except KeyboardInterrupt:
                 return
-            except OSError:
-                logging.exception(f"[{str(self.sw1)}] -> [{str(self.sw2)}] inf1={inf1} inf2={inf2}")
-                time.sleep(self.interval)
+            except OSError as e:
+                
+                # We are done, the device doesn't exist any more
+                if e.errno == 19 or e.errno == 6:
+                    return
+                else:
+                    # 100: Link down
+                    if e.errno != 100:
+                        logging.exception(f"[{str(self.sw1)}] -> [{str(self.sw2)}] inf1={inf1} inf2={inf2}")
+                    time.sleep(self.interval)
             except Exception:
                 logging.exception(f"[{str(self.sw1)}] -> [{str(self.sw2)}] inf1={inf1} inf2={inf2}")
             finally:
@@ -236,15 +243,19 @@ class Ping(threading.Thread):
 
 class Pong(threading.Thread):
 
-    def __init__(self, sw: Switch, threshold: float, failure_cb: callable, good_cb: callable):
+    def __init__(self, sw: Switch, threshold: float, failure_cb: callable, good_cb: callable, spd_cb: callable):
         super().__init__()
         # sw1 < sw2!
         self.sw = sw
         self.failure_cb = failure_cb
         self.good_cb = good_cb
+        self.spd_cb = spd_cb
         self.threshold = threshold
         self.latest_timestamp = 0
-        self.last_seen = [ None for _ in range(16)]
+        self.last_seen = [ None for _ in range(12)]
+        self.last_ingress = [ None for _ in range(12)]
+        self.last_egress = [ None for _ in range(12)]
+        self.last_spd_time = None
     
     # def unpack_digest(self, msg: bytes, num_samples: int):
     #     digest = []
@@ -257,24 +268,54 @@ class Pong(threading.Thread):
     #         digest.append( (port, stamp / 1e6) )
     #     return digest
 
-    def process_stamps(self, stamps: list):
+    def process_stamps(self, raw_stamps: list):
         #logging.debug(f"[{str(self.sw)}] Get stamps={stamps}")
-        for port, stamp in stamps:
+        for port, stamp in enumerate(raw_stamps):
+            if port == self.sw.host.sw_port:
+                self.last_seen[port] = stamp
+            if port not in self.sw.sw_ports or stamp == 0:
+                continue
             if stamp > self.latest_timestamp:
                 self.latest_timestamp = stamp
-            if self.last_seen[port] is None:
-                self.last_seen[port] = stamp
-                continue
-            else: 
-                d = stamp - self.last_seen[port]
-                #logging.debug(f"[{str(self.sw)}]: d={d} port={port} stamp={stamp}")
-                if d > self.threshold :
-                    pass
-                    #self.failure_cb(self, [port])
-                else:
-                    self.good_cb(self, [port])
 
-                self.last_seen[port] = stamp
+            self.last_seen[port] = stamp
+
+
+    def process_size(self, raw_ingress: list, raw_egress: list, now: float):
+        spds = []
+
+        if self.last_spd_time is None:
+            self.last_spd_time = now
+            return []
+
+        for port in range(len(raw_ingress)):
+            if port not in self.sw.sw_ports and port != self.sw.host.sw_port:
+                #spd.append((port, 0))
+                continue
+           
+            if self.last_ingress[port] is None:
+                self.last_ingress[port] = raw_ingress[port]
+
+            if self.last_egress[port] is None:
+                self.last_egress[port] = raw_egress[port]
+            
+            
+            time_delta = now - self.last_spd_time
+            ingress_delta = raw_ingress[port] - self.last_ingress[port]
+            egress_delta = raw_egress[port] - self.last_egress[port]
+            ingress = ingress_delta / time_delta
+            egress = egress_delta / time_delta
+            #logging.debug(f"[{str(self.sw)}] delta={time_delta} ingress_delta={ingress_delta}")
+
+            self.last_ingress[port] = raw_ingress[port]
+            self.last_egress[port] = raw_egress[port]
+            
+
+            spds.append((port, ingress, egress))
+
+        self.last_spd_time = now
+        return spds
+        #logging.debug(f"[{str(self.sw)}] spd={spds}")
 
     # def process(self, msg: bytes):
     #     topic, device_id, ctx_id, list_id, buffer_id, num = struct.unpack("<iQiiQi",
@@ -301,10 +342,20 @@ class Pong(threading.Thread):
                     # msg = skt.recv(nnpy.DONTWAIT)
                     #logging.debug(f"[{str(self.sw)}] recv {msg}")
                     # self.process(msg)
-                    rs = self.sw.controller.register_read("linkStamp")
+
+                    now = datetime.now().timestamp()
+                    register_ingress = self.sw.controller.register_read("linkIngressSize")
+                    register_egress = self.sw.controller.register_read("linkEgressSize")
+                    register_stamps = self.sw.controller.register_read("linkStamp")
                     #logging.debug(f"[{str(self.sw)}] rs={rs}")
-                    stamps = [(i, r / 1e6) for i, r in enumerate(rs) if r != 0 and i in self.sw.sw_ports]
-                    self.process_stamps(stamps)
+                    spds = self.process_size(register_ingress, register_egress, now)
+
+                    # Call failure callbacks firstly
+                    self.process_stamps(register_stamps)
+
+                    # Then updates speeds in case there is some changes in routes
+                    if len(spds) != 0:
+                        self.spd_cb(self, spds)
                     #logging.debug(f"[{str(self.sw)}] seen={self.last_seen} lastest={self.latest_timestamp}")
                 except AssertionError:
                     #logging.debug(f"[{str(self.sw)}]")
@@ -316,15 +367,21 @@ class Pong(threading.Thread):
                     pass
                 finally:
                     fports = []
+                    gports = []
                     #logging.debug(f"[{str(self.sw)}] final")
                     if self.latest_timestamp != 0:
                         for p in self.sw.sw_ports:
                             if self.last_seen[p] is not None:
-                                if self.latest_timestamp - self.last_seen[p] > self.threshold:
+                                if (self.latest_timestamp - self.last_seen[p]) / 1e6 > self.threshold:
                                     fports.append(p)
-                    
+                                else:
+                                    gports.append(p)
+                    #logging.debug(f"{fports} {gports}")
                     if len(fports) != 0:
                         self.failure_cb(self, fports)
+
+                    if len(gports) != 0:
+                        self.good_cb(self, gports)
                     
                     #logging.debug(f"[{str(self.sw)}] final done")
         except KeyboardInterrupt:
@@ -400,7 +457,10 @@ class Controller(object):
                 for p in sw1.sw_ports.keys():
                     sw1.table_add("tcp_sla", "NoAction", [str(p), "0.0.0.0/0", "0->65535", "0->65535"], [], 0)
                     sw1.table_add("udp_sla", "NoAction", [str(p), "0.0.0.0/0", "0->65535", "0->65535"], [], 0)
-
+        
+        for sw in self.switches:
+            sw.controller.table_set_default("tcp_sla", "drop")
+            sw.controller.table_set_default("udp_sla", "drop")
     
     def init(self):
         """Basic initialization. Connects to switches and resets state."""
@@ -409,7 +469,7 @@ class Controller(object):
         self.build_topo()
         self.sanity_check()
         self.parse_inputs()
-        self.allow_sla_flows()
+        #self.allow_sla_flows()
 
         # Test thrift_api
         # self.thrift_controller = ThriftAPI(9100, "10.0.11.1/24", "none")
@@ -623,7 +683,7 @@ class Controller(object):
         [controller.reset_state() for controller in self.controllers.values()]
 
     def build_topo(self):
-        logging.debug(f"{self.topo.get_node_intfs()}")
+        #logging.debug(f"{self.topo.get_node_intfs()}")
 
         intfs = self.topo.get_node_intfs()
 
@@ -812,7 +872,7 @@ class Controller(object):
             sw1 = sw2.sw_ports[port] # type: Switch
             #logging.debug(f"[{str(sw2)}]: Recovery from {str(sw1)} -> {str(sw2)}")
             if self.weights[sw1.city][sw2.city] != 0xFFFF:
-                return
+                continue
             
             logging.debug(f"Failure recovery from {str(sw1)} -> {str(sw2)} weights {self.weights[sw1.city][sw2.city]} {self.weights[sw2.city][sw1.city]}")
             self.weights[sw1.city][sw2.city] = self.initial_weights[sw1.city][sw2.city]
@@ -822,8 +882,13 @@ class Controller(object):
             self.best_paths = self.cal_best_paths()
             self.build_mpls_fec()
 
+    def rt_speed(self, pong: Pong, spd: list):
+        #logging.debug(f"[{str(pong.sw)}] spd={spd}")
+        pass
+
     def start_monitor(self):
         ts = []
+
         for i in range(16):
             c1 = City(i)
             s1 = self.switches[c1]
@@ -832,13 +897,13 @@ class Controller(object):
                 s2 = self.switches[c2]
 
                 if c1 < c2:
-                    logging.debug(f"Append {str(s1)} {str(s2)}")
+                    #logging.debug(f"Append {str(s1)} {str(s2)}")
                     ts.append(Ping(s1, s2, 0.1))
                     ts.append(Ping(s2, s1, 0.1))
         
-        for i in range(16):
-            ts.append(Pong(self.switches[i], 0.5, self.has_failure, self.no_failure))
-        #ts.append(Pong(self.switches[City.PAR], 0.3, self.has_failure, self.no_failure))
+        # for i in range(16):
+        #     ts.append(Pong(self.switches[i], 0.5, self.has_failure, self.no_failure, self.rt_speed))
+        ts.append(Pong(self.switches[City.AMS], 0.5, self.has_failure, self.no_failure, self.rt_speed))
         
         for t in ts:
             t.start()
@@ -846,8 +911,12 @@ class Controller(object):
         return ts
 
     def run(self):
+        set_sla = threading.Thread(target=self.allow_sla_flows, args=(self,))
+        set_sla.start()
+
         monitors = self.start_monitor()
 
+        monitors += [set_sla]
         for m in monitors:
             m.join()
 

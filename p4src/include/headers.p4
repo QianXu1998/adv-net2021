@@ -96,6 +96,7 @@ struct metadata {
     bit<1>   link_State;
     bit<2>   meter_color;  // Level of rate limiting
     bit<48>  tmp_stamp;
+    bit<64>  tmp_size;
 }
 
 // Instantiate packet headers

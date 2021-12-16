@@ -11,6 +11,8 @@
 // Define Linkstate Register, used to indicate failure, 0 = Fine, 1 = Failed
 register<bit<1>>(N_PORTS) linkState;
 register<bit<48>>(N_PORTS) linkStamp;
+register<bit<64>>(N_PORTS) linkIngressSize;
+register<bit<64>>(N_PORTS) linkEgressSize;
 
 /*************************************************************************
 ************   C H E C K S U M    V E R I F I C A T I O N   *************
@@ -47,7 +49,7 @@ control MyIngress(inout headers hdr,
             drop;
             NoAction;
         }
-        default_action = drop();
+        default_action = NoAction();
         size = 4096;
     }
 
@@ -63,7 +65,7 @@ control MyIngress(inout headers hdr,
             drop;
             NoAction;
         }
-        default_action = drop();
+        default_action = NoAction();
         size = 4096;
     }
 
@@ -648,17 +650,25 @@ control MyIngress(inout headers hdr,
             }
         }  else {
             if(hdr.ethernet.isValid()) {
-                linkStamp.read(meta.tmp_stamp, (bit<32>)standard_metadata.ingress_port);
-                if (standard_metadata.ingress_global_timestamp > meta.tmp_stamp) {
-                    linkStamp.write((bit<32>)standard_metadata.ingress_port, standard_metadata.ingress_global_timestamp);
+
+                @atomic {
+                    linkStamp.read(meta.tmp_stamp, (bit<32>)standard_metadata.ingress_port);
+                    if (standard_metadata.ingress_global_timestamp > meta.tmp_stamp) {
+                        linkStamp.write((bit<32>)standard_metadata.ingress_port, standard_metadata.ingress_global_timestamp);
+                    }
+                }
+                
+                @atomic {
+                    linkIngressSize.read(meta.tmp_size, (bit<32>)standard_metadata.ingress_port);
+                    linkIngressSize.write((bit<32>)standard_metadata.ingress_port, meta.tmp_size + (bit<64>)standard_metadata.packet_length);
                 }
             }
-            if (hdr.tcp.isValid() && (!tcp_sla.apply().hit)) {
-                return;
-            }
-            if (hdr.udp.isValid() && (!udp_sla.apply().hit)) {
-                return;
-            }
+            // if (hdr.tcp.isValid() && (!tcp_sla.apply().hit)) {
+            //     return;
+            // }
+            // if (hdr.udp.isValid() && (!udp_sla.apply().hit)) {
+            //     return;
+            // }
             if(hdr.ipv4.isValid()){
                 FEC_tbl.apply();
             }
@@ -690,9 +700,17 @@ control MyEgress(inout headers hdr,
                  inout standard_metadata_t standard_metadata) {
     apply {
         if(hdr.ethernet.isValid()) {
-            linkStamp.read(meta.tmp_stamp, (bit<32>)standard_metadata.egress_port);
-            if (standard_metadata.egress_global_timestamp > meta.tmp_stamp) {
-                linkStamp.write((bit<32>)standard_metadata.egress_port, standard_metadata.egress_global_timestamp);
+
+            @atomic {
+                linkStamp.read(meta.tmp_stamp, (bit<32>)standard_metadata.egress_port);
+                if (standard_metadata.egress_global_timestamp > meta.tmp_stamp) {
+                    linkStamp.write((bit<32>)standard_metadata.egress_port, standard_metadata.egress_global_timestamp);
+                }
+            }
+            
+            @atomic {
+                linkEgressSize.read(meta.tmp_size, (bit<32>)standard_metadata.egress_port);
+                linkEgressSize.write((bit<32>)standard_metadata.egress_port, meta.tmp_size + (bit<64>)standard_metadata.packet_length);
             }
         }
     }
