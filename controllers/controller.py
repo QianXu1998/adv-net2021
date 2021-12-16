@@ -310,8 +310,8 @@ class Pong(threading.Thread):
             self.last_ingress[port] = raw_ingress[port]
             self.last_egress[port] = raw_egress[port]
             
-
-            spds.append((port, ingress, egress))
+            # B/s -> bps
+            spds.append((port, ingress * 8, egress * 8))
 
         self.last_spd_time = now
         return spds
