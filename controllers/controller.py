@@ -100,15 +100,16 @@ class Switch:
 
     def table_add(self, table_name, action_name, match_keys, action_params, prio=0):
         r = self.controller.table_add(table_name, action_name, match_keys, action_params, prio)
-        logging.debug(f"[{str(self)}] table_add {table_name} {action_name} {match_keys} {action_params} {prio} ret={r}")
+        #logging.debug(f"[{str(self)}] table_add {table_name} {action_name} {match_keys} {action_params} {prio} ret={r}")
         
         if r is None:
-            logging.warning(f"[{str(self)}] table_add ret is None!")
+            pass
+            #logging.warning(f"[{str(self)}] table_add ret is None!")
         return r
 
     def table_modify(self, table_name, hdl, action_name, action_params):
         r = self.controller.table_modify(table_name, action_name, hdl, action_params)
-        logging.debug(f"[{str(self)}] table_modify {table_name} {action_name} {action_params} hdl={hdl} ret={r}")
+        #logging.debug(f"[{str(self)}] table_modify {table_name} {action_name} {action_params} hdl={hdl} ret={r}")
         return r
 
     def dst_table_add(self, dst: City, table_name, action_name, match_keys, action_params, best_path):
@@ -203,33 +204,35 @@ class Ping(threading.Thread):
 
 
     def run(self):
-        try:
-            inf1, inf2 = self.sw1.sw_links[self.sw2.city]['interfaces']
+        inf1, inf2 = self.sw1.sw_links[self.sw2.city]['interfaces']
 
-            while True:
-                skt = socket.socket(socket.AF_PACKET, socket.SOCK_RAW)
-
+        while True:
+            skt = socket.socket(socket.AF_PACKET, socket.SOCK_RAW)
+            try:
                 skt.bind((inf1, 0))
                 bs = self.build_hearbeat()
                 logging.debug(f"[{str(self.sw1)}] -> [{str(self.sw2)}]: Sniffing {inf1}")
                 while True:
-
-                    skt.bind((inf1, 0))
-                    bs = self.build_hearbeat()
-                    logging.debug(f"[{str(self.sw1)}] -> [{str(self.sw2)}]: Sniffing {inf1}")
-                    while True:
-                        try:
-                            skt.send(bs)
-                            #logging.debug(f"[{str(self.sw1)}] Sent packet to {inf1}")
+                    try:
+                        skt.send(bs)
+                        #logging.debug(f"[{str(self.sw1)}] Sent packet to {inf1}")
+                        time.sleep(self.interval)
+                    except OSError as e:
+                        if e.errno == 105:
+                            # Bandwith full, nothing more to do
                             time.sleep(self.interval)
-                        except OSError:
-                            skt.close()
-                            time.sleep(self.interval)
-                            break
-        except KeyboardInterrupt:
-            return
-        except Exception:
-            logging.exception("")
+                        else:
+                            # Re-raise the error
+                            raise e
+            except KeyboardInterrupt:
+                return
+            except OSError:
+                logging.exception(f"[{str(self.sw1)}] -> [{str(self.sw2)}] inf1={inf1} inf2={inf2}")
+                time.sleep(self.interval)
+            except Exception:
+                logging.exception(f"[{str(self.sw1)}] -> [{str(self.sw2)}] inf1={inf1} inf2={inf2}")
+            finally:
+                skt.close()
 
 class Pong(threading.Thread):
 
@@ -240,22 +243,19 @@ class Pong(threading.Thread):
         self.failure_cb = failure_cb
         self.good_cb = good_cb
         self.threshold = threshold
-        self.last_seen = {}
         self.latest_timestamp = 0
-
-        for p in self.sw.sw_ports:
-            self.last_seen[p] = None
+        self.last_seen = [ None for _ in range(16)]
     
-    def unpack_digest(self, msg: bytes, num_samples: int):
-        digest = []
-        starting_index = 32
-        for _ in range(num_samples):
-            #logging.debug(f"[{str(self.sw)}]: msg={msg[starting_index:starting_index+8]}")
-            stamp0, stamp1, port = struct.unpack(">LHH", msg[starting_index:starting_index+8])
-            starting_index +=8
-            stamp = (stamp0 << 16) + stamp1
-            digest.append( (port, stamp / 1e6) )
-        return digest
+    # def unpack_digest(self, msg: bytes, num_samples: int):
+    #     digest = []
+    #     starting_index = 32
+    #     for _ in range(num_samples):
+    #         #logging.debug(f"[{str(self.sw)}]: msg={msg[starting_index:starting_index+8]}")
+    #         stamp0, stamp1, port = struct.unpack(">LHH", msg[starting_index:starting_index+8])
+    #         starting_index +=8
+    #         stamp = (stamp0 << 16) + stamp1
+    #         digest.append( (port, stamp / 1e6) )
+    #     return digest
 
     def process_stamps(self, stamps: list):
         #logging.debug(f"[{str(self.sw)}] Get stamps={stamps}")
@@ -276,41 +276,37 @@ class Pong(threading.Thread):
 
                 self.last_seen[port] = stamp
 
-    def process(self, msg: bytes):
-        topic, device_id, ctx_id, list_id, buffer_id, num = struct.unpack("<iQiiQi",
-                                                                          msg[:32])
-        digest = self.unpack_digest(msg, num)
-        self.process_stamps(digest)
-        #Acknowledge digest
-        self.sw.controller.client.bm_learning_ack_buffer(ctx_id, list_id, buffer_id)
+    # def process(self, msg: bytes):
+    #     topic, device_id, ctx_id, list_id, buffer_id, num = struct.unpack("<iQiiQi",
+    #                                                                       msg[:32])
+    #     digest = self.unpack_digest(msg, num)
+    #     self.process_stamps(digest)
+    #     #Acknowledge digest
+    #     self.sw.controller.client.bm_learning_ack_buffer(ctx_id, list_id, buffer_id)
 
     def run(self):
         try:
-            skt = nnpy.Socket(nnpy.AF_SP, nnpy.SUB)
-            #time.sleep(5)
-            #self.sw2.controller.mirroring_add
-            ns = self.sw.controller.client.bm_mgmt_get_info().notifications_socket
-            logging.debug(f"[{str(self.sw)}]: ns={ns} threshold={self.threshold}")
-            skt.connect(ns)
-            skt.setsockopt(nnpy.SUB, nnpy.SUB_SUBSCRIBE, '')
+            # skt = nnpy.Socket(nnpy.AF_SP, nnpy.SUB)
+            # #time.sleep(5)
+            # #self.sw2.controller.mirroring_add
+            # ns = self.sw.controller.client.bm_mgmt_get_info().notifications_socket
+            # logging.debug(f"[{str(self.sw)}]: ns={ns} threshold={self.threshold}")
+            # skt.connect(ns)
+            # skt.setsockopt(nnpy.SUB, nnpy.SUB_SUBSCRIBE, '')
             while True:
                 #logging.debug(f"in while")
                 try:
                     #logging.debug(f"[{str(self.sw)}]: seen={self.last_seen} latest={self.latest_timestamp}")
                     time.sleep(self.threshold)
-                    msg = skt.recv(nnpy.DONTWAIT)
+                    # msg = skt.recv(nnpy.DONTWAIT)
                     #logging.debug(f"[{str(self.sw)}] recv {msg}")
-                    self.process(msg)
+                    # self.process(msg)
+                    rs = self.sw.controller.register_read("linkStamp")
+                    #logging.debug(f"[{str(self.sw)}] rs={rs}")
+                    stamps = [(i, r / 1e6) for i, r in enumerate(rs) if r != 0 and i in self.sw.sw_ports]
+                    self.process_stamps(stamps)
+                    #logging.debug(f"[{str(self.sw)}] seen={self.last_seen} lastest={self.latest_timestamp}")
                 except AssertionError:
-                    # fports = []
-                    # for p in self.sw.sw_ports:
-                    #     if self.last_seen[p] is not None:
-                    #         n = datetime.now()
-                    #         if n.timestamp() - self.last_seen[p] > self.threshold:
-                    #             fports.append(p)
-                    
-                    # if len(fports) != 0:
-                    #     self.failure_cb(self, fports)
                     #logging.debug(f"[{str(self.sw)}]")
                     #logging.exception("")
                     pass
@@ -836,7 +832,9 @@ class Controller(object):
                 s2 = self.switches[c2]
 
                 if c1 < c2:
+                    logging.debug(f"Append {str(s1)} {str(s2)}")
                     ts.append(Ping(s1, s2, 0.1))
+                    ts.append(Ping(s2, s1, 0.1))
         
         for i in range(16):
             ts.append(Pong(self.switches[i], 0.5, self.has_failure, self.no_failure))

@@ -6,10 +6,11 @@
 #include "include/headers.p4"
 #include "include/parsers.p4"
 
-#define N_PORTS 8
+#define N_PORTS 12
 
 // Define Linkstate Register, used to indicate failure, 0 = Fine, 1 = Failed
 register<bit<1>>(N_PORTS) linkState;
+register<bit<48>>(N_PORTS) linkStamp;
 
 /*************************************************************************
 ************   C H E C K S U M    V E R I F I C A T I O N   *************
@@ -640,12 +641,18 @@ control MyIngress(inout headers hdr,
                 hdr.heart.from_cp = 0;
                 standard_metadata.egress_spec = hdr.heart.port;
             } else {
-                meta.hb.stamp = standard_metadata.ingress_global_timestamp;
-                meta.hb.port = standard_metadata.ingress_port;
-                digest<digest_t>(1, meta.hb);
+                // meta.hb.stamp = standard_metadata.ingress_global_timestamp;
+                // meta.hb.port = standard_metadata.ingress_port;
+                // digest<digest_t>(1, meta.hb);
                 mark_to_drop(standard_metadata);
             }
         }  else {
+            if(hdr.ethernet.isValid()) {
+                linkStamp.read(meta.tmp_stamp, (bit<32>)standard_metadata.ingress_port);
+                if (standard_metadata.ingress_global_timestamp > meta.tmp_stamp) {
+                    linkStamp.write((bit<32>)standard_metadata.ingress_port, standard_metadata.ingress_global_timestamp);
+                }
+            }
             if (hdr.tcp.isValid() && (!tcp_sla.apply().hit)) {
                 return;
             }
@@ -659,18 +666,18 @@ control MyIngress(inout headers hdr,
                 mpls_tbl.apply();
             }
             // This part can be optimized , waste one cycle of manipulating the packet
-            if(meta.link_State > 0){
-                LFA_REP_tbl.apply();
-                if(hdr.mpls[0].isValid()){
-                    lfa_mpls_tbl.apply();
-                }
-            }
+            // if(meta.link_State > 0){
+            //     LFA_REP_tbl.apply();
+            //     if(hdr.mpls[0].isValid()){
+            //         lfa_mpls_tbl.apply();
+            //     }
+            // }
         }
 
         /* If meter is not green then drop (Can be optimized, may not be that strict) */
-        if (meta.meter_color != 0) {
-            drop();
-        }
+        // if (meta.meter_color != 0) {
+        //     drop();
+        // }
     }
 }
 
@@ -682,7 +689,12 @@ control MyEgress(inout headers hdr,
                  inout metadata meta,
                  inout standard_metadata_t standard_metadata) {
     apply {
-
+        if(hdr.ethernet.isValid()) {
+            linkStamp.read(meta.tmp_stamp, (bit<32>)standard_metadata.egress_port);
+            if (standard_metadata.egress_global_timestamp > meta.tmp_stamp) {
+                linkStamp.write((bit<32>)standard_metadata.egress_port, standard_metadata.egress_global_timestamp);
+            }
+        }
     }
 }
 
