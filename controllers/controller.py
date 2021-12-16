@@ -901,9 +901,9 @@ class Controller(object):
                     ts.append(Ping(s1, s2, 0.1))
                     ts.append(Ping(s2, s1, 0.1))
         
-        # for i in range(16):
-        #     ts.append(Pong(self.switches[i], 0.5, self.has_failure, self.no_failure, self.rt_speed))
-        ts.append(Pong(self.switches[City.AMS], 0.5, self.has_failure, self.no_failure, self.rt_speed))
+        for i in range(16):
+            ts.append(Pong(self.switches[i], 0.5, self.has_failure, self.no_failure, self.rt_speed))
+        #ts.append(Pong(self.switches[City.AMS], 0.5, self.has_failure, self.no_failure, self.rt_speed))
         
         for t in ts:
             t.start()
