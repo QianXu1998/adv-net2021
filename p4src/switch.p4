@@ -676,12 +676,12 @@ control MyIngress(inout headers hdr,
                 mpls_tbl.apply();
             }
             // This part can be optimized , waste one cycle of manipulating the packet
-            // if(meta.link_State > 0){
-            //     LFA_REP_tbl.apply();
-            //     if(hdr.mpls[0].isValid()){
-            //         lfa_mpls_tbl.apply();
-            //     }
-            // }
+            if(meta.link_State > 0){
+                LFA_REP_tbl.apply();
+                if(hdr.mpls[0].isValid()){
+                    lfa_mpls_tbl.apply();
+                }
+            }
         }
 
         /* If meter is not green then drop (Can be optimized, may not be that strict) */

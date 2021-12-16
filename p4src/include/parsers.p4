@@ -27,11 +27,6 @@ parser MyParser(packet_in packet,
         transition accept;
     }
 
-    // state parse_link_update {
-    //     packet.extract(hdr.link_state);
-    //     transition accept;
-    // }
-
     state parse_mpls {
         packet.extract(hdr.mpls.next);
         transition select(hdr.mpls.last.s) {
