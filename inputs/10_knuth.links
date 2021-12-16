@@ -1,0 +1,4 @@
+src_switch, dst_switch, bw
+LIS, MAN, 10
+LIS, BER, 10
+MAD, FRA, 10
