@@ -21,6 +21,8 @@ from scapy.layers.inet import IP, TCP, UDP
 from datetime import datetime
 from thrift.Thrift import TApplicationException
 import copy
+import psutil
+
 # TODO: remove logging to speedup
 logging.basicConfig(filename='/tmp/controller.log', format="[%(levelname)s] %(message)s", level=logging.DEBUG)
 #logging.basicConfig(format="[%(levelname)s] %(message)s", level=logging.ERROR)
@@ -245,6 +247,28 @@ class Ping(threading.Thread):
             finally:
                 skt.close()
 
+class LinkMonitor(threading.Thread):
+
+    def __init__(self, update_cb: callable, interval=0.5):
+        super().__init__()
+        self.update_cb = update_cb
+        self.interval = interval
+        self.last_time = 0
+
+    def run(self):
+        try:
+            while True:
+                self.last_time = datetime.now().timestamp()
+                last_information = psutil.net_io_counters(pernic=True)
+                time.sleep(self.interval)
+                now = datetime.now().timestamp()
+                information = psutil.net_io_counters(pernic=True)
+                self.update_cb(last_information, information, now - self.last_time)
+
+        except KeyError:
+            logging.exception("We are done?")
+            
+
 class Pong(threading.Thread):
 
     def __init__(self, sw: Switch, threshold: float, failure_cb: callable, good_cb: callable):
@@ -255,10 +279,7 @@ class Pong(threading.Thread):
         self.good_cb = good_cb
         self.threshold = threshold
         self.latest_timestamp = 0
-        self.last_seen = [ None for _ in range(12)]
-        self.last_ingress = [ None for _ in range(12)]
-        self.last_egress = [ None for _ in range(12)]
-        self.last_spd_time = None
+        self.last_seen = [None for _ in range(16)]
     
     # def unpack_digest(self, msg: bytes, num_samples: int):
     #     digest = []
@@ -274,51 +295,14 @@ class Pong(threading.Thread):
     def process_stamps(self, raw_stamps: list):
         #logging.debug(f"[{str(self.sw)}] Get stamps={stamps}")
         for port, stamp in enumerate(raw_stamps):
-            if port == self.sw.host.sw_port:
-                self.last_seen[port] = stamp
+            # if port == self.sw.host.sw_port:
+            #     self.last_seen[port] = stamp
             if port not in self.sw.sw_ports or stamp == 0:
                 continue
             if stamp > self.latest_timestamp:
                 self.latest_timestamp = stamp
 
             self.last_seen[port] = stamp
-
-
-    # def process_size(self, raw_ingress: list, raw_egress: list, now: float):
-    #     spds = []
-
-    #     if self.last_spd_time is None:
-    #         self.last_spd_time = now
-    #         return []
-
-    #     for port in range(len(raw_ingress)):
-    #         if port not in self.sw.sw_ports and port != self.sw.host.sw_port:
-    #             #spd.append((port, 0))
-    #             continue
-           
-    #         if self.last_ingress[port] is None:
-    #             self.last_ingress[port] = raw_ingress[port]
-
-    #         if self.last_egress[port] is None:
-    #             self.last_egress[port] = raw_egress[port]
-            
-            
-    #         time_delta = now - self.last_spd_time
-    #         ingress_delta = raw_ingress[port] - self.last_ingress[port]
-    #         egress_delta = raw_egress[port] - self.last_egress[port]
-    #         ingress = ingress_delta / time_delta
-    #         egress = egress_delta / time_delta
-    #         #logging.debug(f"[{str(self.sw)}] delta={time_delta} ingress_delta={ingress_delta}")
-
-    #         self.last_ingress[port] = raw_ingress[port]
-    #         self.last_egress[port] = raw_egress[port]
-            
-    #         # B/s -> bps
-    #         spds.append((port, ingress * 8, egress * 8))
-
-    #     self.last_spd_time = now
-    #     return spds
-        #logging.debug(f"[{str(self.sw)}] spd={spds}")
 
     # def process(self, msg: bytes):
     #     topic, device_id, ctx_id, list_id, buffer_id, num = struct.unpack("<iQiiQi",
@@ -341,25 +325,12 @@ class Pong(threading.Thread):
                 #logging.debug(f"in while")
                 try:
                     #logging.debug(f"[{str(self.sw)}]: seen={self.last_seen} latest={self.latest_timestamp}")
-                    time.sleep(self.threshold)
                     # msg = skt.recv(nnpy.DONTWAIT)
                     #logging.debug(f"[{str(self.sw)}] recv {msg}")
                     # self.process(msg)
-
-                    # now = datetime.now().timestamp()
-                    # register_ingress = self.sw.controller.register_read("linkIngressSize")
-                    # register_egress = self.sw.controller.register_read("linkEgressSize")
+                    time.sleep(self.threshold)
                     register_stamps = self.sw.controller.register_read("linkStamp")
-                    #logging.debug(f"[{str(self.sw)}] rs={rs}")
-                    # spds = self.process_size(register_ingress, register_egress, now)
-
-                    # Call failure callbacks firstly
                     self.process_stamps(register_stamps)
-
-                    # Then updates speeds in case there is some changes in routes
-                    # if len(spds) != 0:
-                    #     self.spd_cb(self, spds)
-                    #logging.debug(f"[{str(self.sw)}] seen={self.last_seen} lastest={self.latest_timestamp}")
                 except AssertionError:
                     #logging.debug(f"[{str(self.sw)}]")
                     #logging.exception("")
@@ -539,10 +510,11 @@ class Controller(object):
         # TODO: Build shortest paths by bw requests
         #self.paths = self.cal_paths()
         #self.shortest_paths = self.cal_shortest_path()
-        self.best_paths = self.cal_best_paths()
+        self.paths = self.cal_paths()
+        self.best_paths = self.cal_best_paths(self.paths)
         
         self.build_mpls_forward_table()
-        self.build_mpls_fec()
+        self.build_mpls_fec(self.best_paths)
 
         
         # import ipdb
@@ -556,15 +528,14 @@ class Controller(object):
                 logging.debug(f"{str(sw)}:{attrs['port']} -> {str(neigh_city)} port_mac: {attrs['mac']}")
             logging.debug(f"{str(sw)}:{sw.host_port} -> {str(sw.host)}")
 
-    def build_mpls_path(self, c1: City, c2: City):
-        paths = self.best_paths[c1][c2]
+    def build_mpls_path(self, c1: City, c2: City, path: list):
         mpls_ports = []
 
         # TODO: Handle invalid paths!
         #logging.debug(f"Building mpls path for {str(c1)}->{str(c2)}: {paths}")
-        for i in range(len(paths) - 1):
-            cur = paths[i]
-            next = paths[i+1]
+        for i in range(len(path) - 1):
+            cur = path[i]
+            next = path[i+1]
 
             cur_port, cur_mac, next_port, next_mac = self.switches[cur].get_link_to(next)
 
@@ -572,7 +543,7 @@ class Controller(object):
 
         return mpls_ports
 
-    def build_mpls_fec(self):
+    def build_mpls_fec(self, best_paths):
         for sw1 in self.switches:
             c1 = sw1.city
 
@@ -581,11 +552,19 @@ class Controller(object):
                     dst_sw = self.switches[i]
                     c2 = dst_sw.city
                     # 1 2 1 2 => 2 is on the bottom of the stack
-                    mpls_path = list(map(str, self.build_mpls_path(c1, c2)[::-1]))
+                    # mpls_path = list(map(str, self.build_mpls_path(c1, c2, self.best_paths[c1][c2])[::-1]))
 
-                    # TODO: Fix sw1.host.lpm!!!!!!!!
-                    sw1.dst_table_add(c2, "FEC_tbl", f"mpls_ingress_{len(mpls_path)}_hop", [sw1.host.lpm, dst_sw.host.ip], mpls_path, self.best_paths[c1][c2])
+                    # # TODO: Fix sw1.host.lpm!!!!!!!!
+                    # sw1.dst_table_add(c2, "FEC_tbl", f"mpls_ingress_{len(mpls_path)}_hop", [sw1.host.lpm, dst_sw.host.ip], mpls_path, self.best_paths[c1][c2])
+                    self.build_mpls_from_to(c1, c2, best_paths[c1][c2])
 
+    # This only build one-way path
+    def build_mpls_from_to(self, c1: City, c2: City, path: list):
+        sw1 = self.switches[c1]
+        sw2 = self.switches[c2]
+        mpls_path = list(map(str, self.build_mpls_path(c1, c2, path)[::-1]))
+
+        sw1.dst_table_add(c2, "FEC_tbl", f"mpls_ingress_{len(mpls_path)}_hop", [sw1.host.lpm, sw2.host.ip], mpls_path, path)
 
     def build_mpls_forward_table(self):
         for sw1 in self.switches:
@@ -633,9 +612,9 @@ class Controller(object):
     def parse_speed(self, spd: str):
         spd = spd.lower()
         if spd.endswith("mbps"):
-            pl = 1000
+            pl = 1000000
         else:
-            pl = 1
+            pl = 1000
         
         spd_num = ""
         for c in spd:
@@ -647,10 +626,7 @@ class Controller(object):
         return int(spd_num) * pl
 
         
-    def cal_best_paths(self):
-        paths = self.cal_paths()
-
-        self.all_available_path = copy.deepcopy(paths) # Saved the computed available paths
+    def cal_best_paths(self, paths):
 
         best_paths = [ [ () for j in range(16) ] for i in range(16) ]
 
@@ -694,7 +670,7 @@ class Controller(object):
                         all_paths_with_weights = paths[c1][c2]
 
                         for ps, _ in all_paths_with_weights:
-                            if self.sub_path_if_fullfilled(ps, 10000):
+                            if self.sub_path_if_fullfilled(ps, 1e7):
                                 best_paths[c1][c2] = ps
                                 break
 
@@ -785,8 +761,8 @@ class Controller(object):
                     self.links_capacity[neigh_city][city] = bw
                     self.weights[city][neigh_city] = float(attrs['delay'][:-2])
                     self.weights[neigh_city][city] = float(attrs['delay'][:-2])
-                    self.links_capacity[city][neigh_city] = 10000
-                    self.links_capacity[neigh_city][city] = 10000
+                    self.links_capacity[city][neigh_city] = 1e7
+                    self.links_capacity[neigh_city][city] = 1e7
         
         self.initial_weights = copy.deepcopy(self.weights)
         self.pprint_topo()
@@ -948,7 +924,8 @@ class Controller(object):
 
                 register_read_value = sw2.controller.register_read('linkState')
                 logging.debug(f"[REGISTER READ] {str(City.PAR)} : linkState[{register_read_value}]")
-                self.best_paths = self.cal_best_paths()
+                self.paths = self.cal_paths()
+                self.best_paths = self.cal_best_paths(self.paths)
                 self.build_mpls_fec()
 
         
@@ -976,13 +953,39 @@ class Controller(object):
             # Update sw.failed_link list
             # sw1.failed_link.remove(sw2.city)
             # sw2.failed_link.remove(sw1.city)
+            self.paths = self.cal_paths()
+            self.best_paths = self.cal_best_paths(self.paths)
+            self.build_mpls_fec(self.best_paths)
 
-            self.best_paths = self.cal_best_paths()
-            self.build_mpls_fec()
-
-    def rt_speed(self, monitor: FlowMonitor, flows: dict):
+    def rt_flows(self, monitor: FlowMonitor, flows: dict):
         logging.debug(f"[{str(monitor.sw)}] flows={flows}")
         pass
+
+    def rt_speed(self, last_information: dict, information: dict, interval: float):
+        for sw1 in self.switches:
+            for p, sw2 in sw1.sw_ports.items():
+                c1 = sw1.city
+                c2 = sw2.city
+                interface = f"{str(sw1)}-eth{p}"
+                last_sent = last_information[interface].bytes_sent
+                sent = information[interface].bytes_sent
+                last_recv = last_information[interface].bytes_recv
+                recv = information[interface].bytes_recv
+
+                sent_rate = ((sent - last_sent) / interval ) * 8
+
+                if sent_rate > 1e7:
+                    sent_rate = 1e7
+                
+                # recv_rate = ((recv - last_recv) / interval) * 8
+
+                # if recv_rate > 1e7:
+                #     recv_rate = 1e7
+
+                self.links_capacity[c1][c2] = 1e7 - sent_rate
+                #logging.debug(f"[{str(sw1)}] -> [{str(sw2)}]: rt={sent_rate}")
+                #self.links_capacity[c2][c1] = 1e7 - recv_rate
+
 
     def start_monitor(self):
         ts = []
@@ -996,12 +999,14 @@ class Controller(object):
 
                 if c1 < c2:
                     #logging.debug(f"Append {str(s1)} {str(s2)}")
-                    ts.append(Ping(s1, s2, 0.1))
-                    ts.append(Ping(s2, s1, 0.1))
+                    ts.append(Ping(s1, s2, 0.3))
+                    ts.append(Ping(s2, s1, 0.3))
+                    pass
         
         for i in range(16):
             ts.append(Pong(self.switches[i], 0.5, self.has_failure, self.no_failure))
             ts.append(FlowMonitor(self.switches[i], self.rt_speed, 0.5))
+            ts.append(LinkMonitor(self.rt_speed, 0.5))
         #ts.append(Pong(self.switches[City.AMS], 0.5, self.has_failure, self.no_failure, self.rt_speed))
         
         for t in ts:

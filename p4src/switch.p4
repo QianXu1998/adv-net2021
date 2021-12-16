@@ -658,10 +658,6 @@ control MyIngress(inout headers hdr,
                     }
                 }
                 
-                @atomic {
-                    linkIngressSize.read(meta.tmp_size, (bit<32>)standard_metadata.ingress_port);
-                    linkIngressSize.write((bit<32>)standard_metadata.ingress_port, meta.tmp_size + (bit<64>)standard_metadata.packet_length);
-                }
             }
             // if (hdr.tcp.isValid() && (!tcp_sla.apply().hit)) {
             //     return;
@@ -708,10 +704,6 @@ control MyEgress(inout headers hdr,
                 }
             }
             
-            @atomic {
-                linkEgressSize.read(meta.tmp_size, (bit<32>)standard_metadata.egress_port);
-                linkEgressSize.write((bit<32>)standard_metadata.egress_port, meta.tmp_size + (bit<64>)standard_metadata.packet_length);
-            }
         }
     }
 }
