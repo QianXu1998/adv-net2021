@@ -505,7 +505,7 @@ class Controller(object):
 
                 logging.debug(f"sla: {sla.type} {src_l} {src_r} {dst_l} {dst_r}")
 
-                if src_r <= 400 and src_r >= 400 and prot != "tcp":
+                if src_r == 400 and prot != "tcp":
                     continue
 
                 if src_l <= 400 and src_l >= 101 and prot == "tcp":

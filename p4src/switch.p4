@@ -11,8 +11,6 @@
 // Define Linkstate Register, used to indicate failure, 0 = Fine, 1 = Failed
 register<bit<1>>(N_PORTS) linkState;
 register<bit<48>>(N_PORTS) linkStamp;
-register<bit<64>>(N_PORTS) linkIngressSize;
-register<bit<64>>(N_PORTS) linkEgressSize;
 
 /*************************************************************************
 ************   C H E C K S U M    V E R I F I C A T I O N   *************
