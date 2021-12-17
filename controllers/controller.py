@@ -504,7 +504,14 @@ class Controller(object):
                     tname = "tcp_sla"
 
                 logging.debug(f"sla: {sla.type} {src_l} {src_r} {dst_l} {dst_r}")
-                if src_l <= 400 and src_l >= 101:
+
+                if src_r <= 400 and src_r >= 200 and prot != "tcp":
+                    continue
+
+                if src_l <= 400 and src_l >= 101 and prot == "tcp":
+                    continue
+
+                if src_l == 60001 and prot == "udp":
                     continue
 
                 for src_city in src_cities:
@@ -1069,7 +1076,7 @@ class Controller(object):
                         cur_average_capa = cal_average_capcacity(self.best_paths[c1][c2], cur_links)
                         for p, _ in self.paths[c1][c2]:
                             aver = cal_average_capcacity(p, cur_links)
-                            if cur_average_capa != 1e7 and ( aver > cur_average_capa * 1.1 or aver == 1e7 ):
+                            if cur_average_capa <= 7 * 1e6 and ( aver > cur_average_capa or aver >= 9 * 1e6 ):
                                 # Do reroute
                                 logging.debug(f"Reroute from {self.best_paths[c1][c2]} to {p} for cur={cur_average_capa} new={aver}")
                                 self.best_paths[c1][c2] = p
