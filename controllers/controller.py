@@ -19,6 +19,7 @@ from scapy.layers.l2 import Ether
 from scapy.layers.inet import IP, TCP, UDP
 from datetime import datetime
 from thrift.Thrift import TApplicationException
+from thrift.transport.TTransport import TTransportException
 import copy
 import psutil
 
@@ -183,8 +184,11 @@ class Switch:
         return rates
 
     def set_direct_meter_bandwidth(self, meter_name: str, handle: int, bw_committed: float, bw_peak: float, burst_committed: float, burst_peak: float):
-        rates = self.get_meter_rates_from_bw(bw_committed, burst_committed, bw_peak, burst_peak)
-        self.controller.meter_set_rates(meter_name, handle, rates)
+        try:
+            rates = self.get_meter_rates_from_bw(bw_committed, burst_committed, bw_peak, burst_peak)
+            self.controller.meter_set_rates(meter_name, handle, rates)
+        except TTransportException:
+            logging.exception("Fail to set meter")
 
     @property
     def host_port(self):
@@ -328,6 +332,11 @@ class Pong(threading.Thread):
                     # Read the register directly.
                     register_stamps = self.sw.controller.register_read("linkStamp")
                     self.process_stamps(register_stamps)
+                except OSError as e:
+
+                    # We are done, the switch is offline.
+                    if e.errno == 32:
+                        return
                 except TApplicationException:
                     # Sometimes we get this exception.
                     # I suspect it is caused by multithreading.
@@ -1049,9 +1058,6 @@ class Controller(object):
                 # sw1.controller.register_write('linkState', sw_port_index_1, 1)
                 # sw_port_index_2 = sw2.sw_links[sw1.city]['port']
                 # sw2.controller.register_write('linkState', sw_port_index_2, 1)
-
-                register_read_value = sw2.controller.register_read('linkState')
-                logging.debug(f"[REGISTER READ] {str(City.PAR)} : linkState[{register_read_value}]")
                 self.paths = self.cal_paths()
                 self.best_paths = self.cal_best_paths(self.paths)
                 self.build_mpls_fec(self.best_paths)
