@@ -25,6 +25,27 @@ import psutil
 # TODO: remove logging to speedup
 logging.basicConfig(filename='/tmp/controller.log', format="[%(levelname)s] %(message)s", level=logging.DEBUG)
 
+# Some naming convention:
+#   c1 -> city1
+#   c2 -> city2
+#   sw -> switch
+#   sw1 -> switch1
+#   sw2 -> switch2
+
+
+# This class assign a numberic index to each city. Since it is derived fron IntEnum, each enum can be used like
+# a python int. Also, a python int can be used to construct a City class.
+#
+# In [27]: c1 = City.AMS
+#
+# In [28]: print(str(c1))
+# AMS
+#
+# In [29]: c1 == 0
+# Out[29]: True
+#
+# In [30]: c1 == City(0)
+# Out[30]: True
 class City(IntEnum):
     AMS = 0
     BAR = 1
@@ -48,6 +69,7 @@ class City(IntEnum):
 
         return s.split(".")[1]
 
+# This map a city string to a City enum.
 city_maps = {
     "AMS" : City.AMS,
     "BAR" : City.BAR,
@@ -67,25 +89,42 @@ city_maps = {
     "REN" : City.REN,
 }
 
-
+# Represent a P4Swtich
 class Switch:
 
     def __init__(self, city: City):
+        # The city this switch belongs to
         self.city = city
-        self.sw_links = {}
-        self.sw_ports = {}
+        # The links this switch have, note the key type is City and it doesn't include the link to host.
+        # The dict keys of the inner dict are:
+        #      "port", "delay", "mac", "sw", "bw", "interfaces"
+        # See build_topo for details
+        self.sw_links = {} # type: dict[City, dict[str]]
+        # This ports this switch have, note the key type is int (port number) and it doesn't include the port host connected to.
+        self.sw_ports = {} # type: dict[int, Switch]
+        # The host connected to this switch
         self.host = Host(self)
+        # The controller API
         self.controller = None # type: SimpleSwitchThriftAPI
-        self.hosts_path = [ ( (), 0xFFFF ) for i in range(16) ]
+        # The path to other hosts.
+        self.hosts_path = [ ( (), 0xFFFF ) for _ in range(16) ]
+        # The links that are failed on this switch.
         self.failed_link = []
         self.in_reroute_table = {}
 
     def get_link_to(self, city: City):
-        #logging.debug(self.sw_links)
+        """
+            Get a link to the city.
+
+            Note the city must be connected to the switch.
+        """
         next_sw = self.sw_links[city]['sw']
         return self.sw_links[city]['port'], self.sw_links[city]['mac'], next_sw.sw_links[self.city]['port'], next_sw.sw_links[self.city]['mac']
 
-    def table_add(self, table_name, action_name, match_keys, action_params, prio=0):
+    def table_add(self, table_name: str, action_name: str, match_keys: list, action_params: list, prio=0):
+        """
+            The wrapper for table_add command.
+        """
         r = self.controller.table_add(table_name, action_name, match_keys, action_params, prio)
         #logging.debug(f"[{str(self)}] table_add {table_name} {action_name} {match_keys} {action_params} {prio} ret={r}")
         
@@ -94,12 +133,21 @@ class Switch:
             #logging.warning(f"[{str(self)}] table_add ret is None!")
         return r
 
-    def table_modify(self, table_name, hdl, action_name, action_params):
+    def table_modify(self, table_name: str, hdl: int, action_name: str, action_params: list):
+        """
+            The wrapper for table_modify command.
+        """
         r = self.controller.table_modify(table_name, action_name, hdl, action_params)
         #logging.debug(f"[{str(self)}] table_modify {table_name} {action_name} {action_params} hdl={hdl} ret={r}")
         return r
 
-    def dst_table_add(self, dst: City, table_name, action_name, match_keys, action_params, best_path):
+    def dst_table_add(self, dst: City, table_name: str, action_name: str, match_keys: list, action_params: list, best_path: list):
+        """
+            Add a new table entry for routing to the destination City.
+
+            This function is mostly used for reroute. If the `best_path` is already the path to the destination City, 
+            nothing happens. Else, we do a table_modify.
+        """
         last_path, last_hdl = self.hosts_path[dst]
         if last_hdl == 0xFFFF:
             hdl = self.table_add(table_name, action_name, match_keys, action_params)
@@ -134,25 +182,36 @@ class Switch:
 
         return rates
 
-    def set_direct_meter_bandwidth(self, meter_name, handle, bw_committed, bw_peak, burst_committed, burst_peak):
+    def set_direct_meter_bandwidth(self, meter_name: str, handle: int, bw_committed: float, bw_peak: float, burst_committed: float, burst_peak: float):
         rates = self.get_meter_rates_from_bw(bw_committed, burst_committed, bw_peak, burst_peak)
         self.controller.meter_set_rates(meter_name, handle, rates)
 
     @property
     def host_port(self):
+        """
+            This attribute represents the port which is connected to the host.
+        """
         return self.host.sw_port
 
     def __str__(self):
+        """
+            For pretty print.
+        """
         return str(self.city)
 
+# Represent the host connected to the switch.
 class Host:
     def __init__(self, sw: Switch):
-        self.city_sw = sw
-        self.mac = None
-        self._lpm = None
-        self._ip = None
-        self.sw_port = None
-        self.sw_interface = None
+        # The swtich the host connected to
+        self.city_sw = sw # type: Switch
+        # The mac address
+        self.mac = None # type: str
+        # The lpm representation of ip address. e.g. 192.168.1.0/24
+        self._lpm = None # type: str
+        # The ip address. e.g. 192.168.1.0/32
+        self._ip = None # type: str
+        self.sw_port = None # type: int
+        self.sw_interface = None # type str
     
     @property
     def lpm(self):
@@ -170,17 +229,27 @@ class Host:
     def __str__(self) -> str:
         return f"{str(self.city_sw)}_h0"
 
-
+# The threads to send heartbeat with a fixed interval.
+# The direction is sw1->sw2
 class Ping(threading.Thread):
 
     def __init__(self, sw1: Switch, sw2: Switch, interval: float):
         super().__init__()
-        # sw1 < sw2!
         self.sw1 = sw1
         self.sw2 = sw2
         self.interval = interval
 
     def build_hearbeat(self):
+        """
+            Build a heartbeat frame.
+
+            From headers.p4:
+                header heart_t {
+                    bit<9>    port;
+                    bit<1>    from_cp;
+                    bit<6>    padding;
+                }
+        """
         s1_port, s1_mac, _, s2_mac = self.sw1.get_link_to(self.sw2.city)
         bs = b""
         bs += b"".join(map(binascii.unhexlify, s2_mac.split(":")))
@@ -222,34 +291,15 @@ class Ping(threading.Thread):
                     # 100: Link down
                     if e.errno != 100:
                         logging.exception(f"[{str(self.sw1)}] -> [{str(self.sw2)}] inf1={inf1} inf2={inf2}")
+                    # Sleep and try again.
                     time.sleep(self.interval)
             except Exception:
                 logging.exception(f"[{str(self.sw1)}] -> [{str(self.sw2)}] inf1={inf1} inf2={inf2}")
             finally:
                 skt.close()
-
-class LinkMonitor(threading.Thread):
-
-    def __init__(self, update_cb: callable, interval=0.5):
-        super().__init__()
-        self.update_cb = update_cb
-        self.interval = interval
-        self.last_time = 0
-
-    def run(self):
-        try:
-            while True:
-                self.last_time = datetime.now().timestamp()
-                last_information = psutil.net_io_counters(pernic=True)
-                time.sleep(self.interval)
-                now = datetime.now().timestamp()
-                information = psutil.net_io_counters(pernic=True)
-                self.update_cb(last_information, information, now - self.last_time)
-
-        except KeyError:
-            logging.exception("We are done?")
             
 
+# The Pong monitor which report a link failure
 class Pong(threading.Thread):
 
     def __init__(self, sw: Switch, threshold: float, failure_cb: callable, good_cb: callable):
@@ -275,6 +325,7 @@ class Pong(threading.Thread):
             while True:
                 try:
                     time.sleep(self.threshold)
+                    # Read the register directly.
                     register_stamps = self.sw.controller.register_read("linkStamp")
                     self.process_stamps(register_stamps)
                 finally:
@@ -287,6 +338,8 @@ class Pong(threading.Thread):
                                     fports.append(p)
                                 else:
                                     gports.append(p)
+                    
+                    # Report the up and down ports.
                     if len(fports) != 0:
                         self.failure_cb(self, fports)
 
@@ -298,6 +351,7 @@ class Pong(threading.Thread):
             logging.exception("")
 
 
+# The flow monitor use scapy to monitor all flows to trigger a possible reroute.
 class FlowMonitor(threading.Thread):
 
     def __init__(self, switches: list, spd_cb: callable, interval=0.5):
@@ -364,6 +418,7 @@ class FlowMonitor(threading.Thread):
 
         if now - self.last_time > self.interval:
             try:
+                # Report all flows.
                 self.spd_cb(self, self.flows, now - self.last_time)
             except Exception:
                 logging.exception(f"Fail to call spd_cb")
@@ -378,9 +433,10 @@ class FlowMonitor(threading.Thread):
         except Exception:
             logging.exception("Fail to monitor flow")
 
+# The core controller object
 class Controller(object):
 
-    def __init__(self, base_traffic, slas):
+    def __init__(self, base_traffic: str, slas: str):
         self.base_traffic_file = base_traffic
         self.slas_file = slas
         self.topo = load_topo('topology.json')
@@ -394,17 +450,30 @@ class Controller(object):
         self.init()
 
     def parse_inputs(self):
+        """
+            Parse the inputs with utils TAs provide.
+        """
         with open(self.slas_file, "r+") as f:
             rdr = csv.DictReader(cleanfile(f))
             self.slas = [make_sla(spec) for spec in rdr]
         self.flows = parse_traffic(self.base_traffic_file)
 
     def parse_city_str(self, s: str):
+        """
+            Parse the city string in the csv file.
+
+            Note: None(*) -> all cities.
+        """
         if s is None:
             return [City(i) for i in range(16)]
         return [city_maps[s.split("_")[0]]]
 
     def parse_port_range(self, tp: tuple):
+        """
+            Parse the port range in the csv file.
+
+            Note: None(*) -> 0 / 65535
+        """
         l, r = tp
         if l is None:
             l = 0
@@ -417,7 +486,10 @@ class Controller(object):
         
         return (l, r)
 
-    def allow_sla_flows(self):
+    def build_sla_rules(self):
+        """
+            This function build rules for specific SLAs.
+        """
         try:
             for sla_idx, sla in enumerate(self.slas):
                 src_cities = self.parse_city_str(sla.src)
@@ -435,14 +507,19 @@ class Controller(object):
 
                 logging.debug(f"sla: {sla.type} {src_l} {src_r} {dst_l} {dst_r}")
 
+                # Port range 301-400 UDP is blocked.
                 if src_r == 400 and prot != "tcp":
                     continue
-
+                
+                # Port range 101-400 TCP is blocked.
                 if src_l <= 400 and src_l >= 101 and prot == "tcp":
                     continue
-
+                
+                # Port range 60001-* is blocked.
                 if src_l == 60001 and prot == "udp":
                     continue
+                
+                # Note: all waypoints traffic is allowed
 
                 for src_city in src_cities:
                     sw1 = self.switches[src_city] # type: Switch
@@ -451,6 +528,7 @@ class Controller(object):
                         if src_city != dst_city:
                             sw2 = self.switches[dst_city] # type: Switch
 
+                            # Add rules for range sport=[src_l, src_r] dport=[dst_l, dst_r]
                             sw1.table_add(tname, "NoAction", [str(sw1.host.sw_port), sw2.host.lpm, f"{src_l}->{src_r}", f"{dst_l}->{dst_r}"], [], 1 + int(dst_city) + sla_idx * len(self.slas))
                             sw2.table_add(tname, "NoAction", [str(sw2.host.sw_port), sw1.host.lpm, f"{dst_l}->{dst_r}", f"{src_l}->{src_r}"], [], 1 + int(dst_city) + sla_idx * len(self.slas))
 
@@ -458,22 +536,33 @@ class Controller(object):
             for sw in self.switches:
 
                 for p in sw.sw_ports.keys():
+                    # Add rules for forwarding.
+                    # Equavelent to
+                    #   iptables -A FORWARD -j ACCEPT
                     sw.table_add("tcp_sla", "NoAction", [str(p), "0.0.0.0/0", "0->65535", "0->65535"], [], 0)
                     sw.table_add("udp_sla", "NoAction", [str(p), "0.0.0.0/0", "0->65535", "0->65535"], [], 0)
 
+                # By defacult block all traffic.
+                # Equavelent to
+                #   iptables -P INPUT DROP
                 sw.controller.table_set_default("tcp_sla", "drop")
                 sw.controller.table_set_default("udp_sla", "drop")
+
         except Exception:
             logging.exception("Adding sla")
             
     def init(self):
-        """Basic initialization. Connects to switches and resets state."""
+        """
+            1. Build the topo and the data structures we would use
+            2. Parse and build sla rules.
+            3. Build the best paths based on SLA.
+        """
         self.connect_to_switches()
         self.reset_states()
         self.build_topo()
         self.sanity_check()
         self.parse_inputs()
-        self.allow_sla_flows()
+        self.build_sla_rules()
 
         self.paths = self.cal_paths()
         self.best_paths = self.cal_best_paths(self.paths)
@@ -484,12 +573,18 @@ class Controller(object):
 
 
     def pprint_topo(self):
+        """
+            Pretty print the topo. Debugging only.
+        """
         for sw in self.switches:
             for neigh_city, attrs in sw.sw_links.items():
                 logging.debug(f"{str(sw)}:{attrs['port']} -> {str(neigh_city)} port_mac: {attrs['mac']} weights: {self.weights[sw.city][neigh_city]}")
             logging.debug(f"{str(sw)}:{sw.host_port} -> {str(sw.host)}")
 
-    def build_mpls_path(self, c1: City, c2: City, path: list):
+    def build_mpls_path(self, path: list):
+        """
+            The `path` is a list of City. This function convert it to a list of ports (MPLS labels)
+        """
         mpls_ports = []
 
         for i in range(len(path) - 1):
@@ -503,6 +598,9 @@ class Controller(object):
         return mpls_ports
 
     def build_mpls_fec(self, best_paths):
+        """
+            Build all MPLS routes based on the best_path
+        """
         for sw1 in self.switches:
             c1 = sw1.city
 
@@ -514,11 +612,15 @@ class Controller(object):
                     # 1 2 1 2 => 2 is on the bottom of the stack
                     self.build_mpls_from_to(c1, c2, best_paths[c1][c2])
 
-    # This only build one-way path
     def build_mpls_from_to(self, c1: City, c2: City, path: list):
+        """
+            Build a single path from c1 to c2.
+
+            Note this only build one-way path.
+        """
         sw1 = self.switches[c1]
         sw2 = self.switches[c2]
-        mpls_path = list(map(str, self.build_mpls_path(c1, c2, path)[::-1]))
+        mpls_path = list(map(str, self.build_mpls_path(path)[::-1]))
 
         handle_1 = sw1.dst_table_add(c2, "FEC_tbl", f"mpls_ingress_{len(mpls_path)}_hop", [sw1.host.lpm, sw2.host.ip], mpls_path, path)
 
@@ -526,6 +628,11 @@ class Controller(object):
         sw1.set_direct_meter_bandwidth('rate_limiting_meter', handle_1, 0.001, 0.001, 1600, 1600)
 
     def build_mpls_forward_table(self):
+        """
+            Build mpls_forward table.
+
+            Note this function should be called exactly once.
+        """
         for sw1 in self.switches:
             c1 = sw1.city
 
@@ -543,6 +650,9 @@ class Controller(object):
                 sw1.table_add("meter_mpls_tbl", "penultimate", [ str(c1_port), "1" ], [c2_mac, str(c1_port)])
 
     def fullfil_link_capcaity(self, path: tuple, req: int):
+        """
+            Check if the path fullfills the capacity.
+        """
         for i in range(len(path)-1):
             c1 = path[i]
             c2 = path[i+1]
@@ -552,16 +662,25 @@ class Controller(object):
         return True
     
     def sub_link_capacity(self, c1: City, c2: City, val: int):
+        """
+            Substract the capacity for the given link.
+        """
         self.links_capacity[c1][c2] -= val
         self.links_capacity[c2][c1] -= val
     
     def sub_path_link_capcity(self, path: tuple, val):
+        """
+            Substract the capacity for the given path.
+        """
         for i in range(len(path)-1):
             c1 = path[i]
             c2 = path[i+1]
             self.sub_link_capacity(c1, c2, val)
     
     def sub_path_if_fullfilled(self, path: tuple, req: int):
+        """
+            If the path fullfill the capacity request, substract the capacity for the given link.
+        """
         if self.fullfil_link_capcaity(path, req):
             self.sub_path_link_capcity(path, req)
             return True
@@ -569,6 +688,12 @@ class Controller(object):
             return False
 
     def parse_speed(self, spd: str):
+        """
+            Convert the speed string to int.
+
+            1mbps -> 1e6
+            1kbps -> 1e3
+        """
         spd = spd.lower()
         if spd.endswith("mbps"):
             pl = 1000000
@@ -586,12 +711,16 @@ class Controller(object):
 
         
     def cal_best_paths(self, paths):
+        """
+            Select the best path from all available paths.
+        """
 
         best_paths = [ [ () for j in range(16) ] for i in range(16) ]
 
         for sla in self.slas:
             if sla.type == "wp":
                 try:
+                    # Fullfill the waypoint sla.
                     target_city =  city_maps[sla.target]
                     src_city = self.parse_city_str(sla.src)[0]
                     dst_city = self.parse_city_str(sla.dst)[0]
@@ -605,6 +734,7 @@ class Controller(object):
                 except (KeyError, IndexError):
                     logging.exception("")
 
+        # Try to do reservation.
         for fl in self.flows:
             c1 = self.parse_city_str(fl['src'])[0]
             c2 = self.parse_city_str(fl['dst'])[0]
@@ -620,6 +750,7 @@ class Controller(object):
                         best_paths[c1][c2] = ps
                         break
         
+        # Try to make full use of all links.
         for i in range(16):
             for j in range(16):
                 if i < j:
@@ -632,10 +763,16 @@ class Controller(object):
                             if self.sub_path_if_fullfilled(ps, 1e7):
                                 best_paths[c1][c2] = ps
                                 break
-
+        
+        # If we can't find a best path, use the path with the smallest weight.
         return [ [ paths[i][j][0][0] if best_paths[i][j] == () and len(paths[i][j]) != 0  else best_paths[i][j] for j in range(16) ] for i in range(16) ]
 
     def cal_paths(self):
+        """
+            Calculate all possible paths with BFS and Floyd alogrithm.
+
+            This function is super slow, be cautious.
+        """
         dis = [ [ 0xFFFF for __ in range(16) ] for _ in range(16)]
 
         for city1, c1_w in self.weights.items():
@@ -678,7 +815,9 @@ class Controller(object):
         [controller.reset_state() for controller in self.controllers.values()]
 
     def build_topo(self):
-
+        """
+            Build the topo we prefer.
+        """
         intfs = self.topo.get_node_intfs()
 
         for sw in self.switches:
@@ -713,10 +852,10 @@ class Controller(object):
                     }
 
                     sw.sw_ports[attrs['port']] = neigh_switch
-                    self.links_capacity[city][neigh_city] = bw
-                    self.links_capacity[neigh_city][city] = bw
+                    # Calculate weights by delay
                     self.weights[city][neigh_city] = float(attrs['delay'][:-2])
                     self.weights[neigh_city][city] = float(attrs['delay'][:-2])
+                    # Update the link capacity
                     self.links_capacity[city][neigh_city] = 1e7
                     self.links_capacity[neigh_city][city] = 1e7
         
@@ -731,6 +870,9 @@ class Controller(object):
             logging.debug(f"Switch: {p4switch} port: {thrift_port}")
     
     def sanity_check(self):
+        """
+            Sanity check for weights.
+        """
         for city1, city_weights in self.weights.items():
             for city2, w in city_weights.items():
                 if city1 in self.weights[city2] and self.weights[city2][city1] != w:
@@ -739,17 +881,6 @@ class Controller(object):
                 if city1 not in self.weights[city2]:
                     logging.warning(f"Reverse weight doesn't exist for {city2} -> {city1}, setting it to {w}")
                     self.weights[city2][city1] = w
-
-    # Nop Packet generating part
-    def build_nop_packet(self, port_index, port_state, sw1: Switch, sw2: Switch):
-        s1_port, s1_mac, s2_port, s2_mac = sw1.get_link_to(sw2.city)
-        bs = b""
-        bs += b"".join(map(binascii.unhexlify, s2_mac.split(":")))
-        bs += b"".join(map(binascii.unhexlify, s1_mac.split(":")))
-        bs += struct.pack(">H", 0x2020)
-        bs += struct.pack(">H", (port_index << 9) | (port_state << 8))
-
-        return bs
 
     def mpls_path_rebuild(self, path):
         mpls_ports = []
@@ -808,7 +939,7 @@ class Controller(object):
                     alt_path = self.build_meter_alt_paths(c1, c2)
                     if (alt_path != None):
                         logging.debug(f"[Meter-Table] Use Path {alt_path}")
-                        mpls_path = list(map(str, self.build_mpls_path(c1, c2, alt_path)[::-1]))
+                        mpls_path = list(map(str, self.build_mpls_path(alt_path)[::-1]))
                         sw1.dst_table_add(c2, "meter_table", f"lfa_replace_{len(mpls_path)}_hop", [sw1.host.lpm, dst_sw.host.ip], mpls_path, alt_path)
             
 
@@ -950,7 +1081,11 @@ class Controller(object):
 
 
     def rt_flows(self, monitor: FlowMonitor, flows: dict, interval: float):
+        """
+            This function is called periodically to check if we have to reroute.
 
+            IMPORTANT: Sometimes this function is too slow to catch up with the real time flow.
+        """
         def sub_cur_link_by_path(cur_links: list, path: list, spd: float):
             for i in range(len(path) - 1):
                 cur_links[path[i]][path[i+1]] -= spd
@@ -989,42 +1124,20 @@ class Controller(object):
                         cur_average_capa = cal_average_capcacity(self.best_paths[c1][c2], cur_links)
                         for p, _ in self.paths[c1][c2]:
                             aver = cal_average_capcacity(p, cur_links)
+                            # If we find a route with more capcacity.
                             if cur_average_capa <= 7 * 1e6 and ( aver > cur_average_capa or aver >= 9 * 1e6 ):
                                 # Do reroute
                                 logging.debug(f"Reroute from {self.best_paths[c1][c2]} to {p} for cur={cur_average_capa} new={aver}")
                                 self.best_paths[c1][c2] = p
                                 self.build_mpls_from_to(c1, c2, p)
                                 break
+                        # Then update the links status.
                         sub_cur_link_by_path(cur_links, self.best_paths[c1][c2], spd)
 
-    def rt_speed(self, last_information: dict, information: dict, interval: float):
-        for sw1 in self.switches:
-            for p, sw2 in sw1.sw_ports.items():
-                c1 = sw1.city
-                c2 = sw2.city
-                interface = f"{str(sw1)}-eth{p}"
-                if interface not in last_information or interface not in information:
-                    continue
-                last_sent = last_information[interface].bytes_sent
-                sent = information[interface].bytes_sent
-                last_recv = last_information[interface].bytes_recv
-                recv = information[interface].bytes_recv
-
-                sent_rate = ((sent - last_sent) / interval ) * 8
-
-                if sent_rate > 1e7:
-                    sent_rate = 1e7
-                
-                # recv_rate = ((recv - last_recv) / interval) * 8
-
-                # if recv_rate > 1e7:
-                #     recv_rate = 1e7
-
-                self.links_capacity[c1][c2] = 1e7 - sent_rate
-                #self.links_capacity[c2][c1] = 1e7 - recv_rate
-
-
     def start_monitor(self):
+        """
+            This function starts all monitors
+        """
         ts = []
         #ts.append(LinkMonitor(self.rt_speed, 0.5))
         ts.append(FlowMonitor(self.switches, self.rt_flows, 0.5))
@@ -1050,7 +1163,7 @@ class Controller(object):
         return ts
 
     def run(self):
-
+        # Start all monitors and wait.
         monitors = self.start_monitor()
 
         for m in monitors:
