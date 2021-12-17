@@ -636,6 +636,43 @@ control MyIngress(inout headers hdr,
         size = 256;
     }
 
+    // Define meter reroute table
+    // The following two tables will be called when color is read
+    table meter_table {
+        key = {
+            hdr.ipv4.srcAddr: lpm;
+            hdr.ipv4.dstAddr: exact;
+        }
+        actions = {
+            lfa_replace_1_hop;
+            lfa_replace_2_hop;
+            lfa_replace_3_hop;
+            lfa_replace_4_hop;
+            lfa_replace_5_hop;
+            lfa_replace_6_hop;
+            lfa_replace_7_hop;
+            lfa_replace_8_hop;
+            lfa_replace_9_hop;
+            drop;
+        }
+        default_action = drop();
+        size = 256;
+    }
+
+    table meter_mpls_tbl {
+        key = {
+            hdr.mpls[0].label: exact;
+            hdr.mpls[0].s: exact;
+        }
+        actions = {
+            mpls_forward;
+            penultimate;
+            NoAction;
+        }
+        default_action = NoAction();
+        size = 256;
+    }
+
     apply {
         /* Ingress Pipeline Control Logic */
         if (hdr.heart.isValid()) {
@@ -681,9 +718,18 @@ control MyIngress(inout headers hdr,
         }
 
         /* If meter is not green then drop (Can be optimized, may not be that strict) */
-        // if (meta.meter_color != 0) {
-        //     drop();
-        // }
+        if (meta.meter_color != 0) {
+            if ((hdr.udp.isValid()) && (hdr.udp.srcPort >= 101) && (hdr.udp.srcPort <= 200) && (hdr.udp.dstPort >= 101) && (hdr.udp.dstPort <= 201)){
+                drop();
+            }
+            if ((hdr.udp.isValid()) && (hdr.udp.srcPort >= 201) && (hdr.udp.srcPort <= 300) && (hdr.udp.dstPort >= 201) && (hdr.udp.dstPort <= 301)){
+                drop();
+            }
+            // meter_table.apply();
+            // if(hdr.mpls[0].isValid()){
+            //     meter_mpls_tbl.apply();
+            // }
+        }
     }
 }
 

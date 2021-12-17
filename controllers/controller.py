@@ -505,7 +505,7 @@ class Controller(object):
 
                 logging.debug(f"sla: {sla.type} {src_l} {src_r} {dst_l} {dst_r}")
 
-                if src_r <= 400 and src_r >= 200 and prot != "tcp":
+                if src_r <= 400 and src_r >= 400 and prot != "tcp":
                     continue
 
                 if src_l <= 400 and src_l >= 101 and prot == "tcp":
@@ -556,6 +556,7 @@ class Controller(object):
         
         self.build_mpls_forward_table()
         self.build_mpls_fec(self.best_paths)
+        self.build_meter_table()
 
         
         # import ipdb
@@ -605,7 +606,10 @@ class Controller(object):
         sw2 = self.switches[c2]
         mpls_path = list(map(str, self.build_mpls_path(c1, c2, path)[::-1]))
 
-        sw1.dst_table_add(c2, "FEC_tbl", f"mpls_ingress_{len(mpls_path)}_hop", [sw1.host.lpm, sw2.host.ip], mpls_path, path)
+        handle_1 = sw1.dst_table_add(c2, "FEC_tbl", f"mpls_ingress_{len(mpls_path)}_hop", [sw1.host.lpm, sw2.host.ip], mpls_path, path)
+
+        # Add meters
+        sw1.set_direct_meter_bandwidth('rate_limiting_meter', handle_1, 0.001, 0.001, 1600, 1600)
 
     def build_mpls_forward_table(self):
         for sw1 in self.switches:
@@ -621,8 +625,10 @@ class Controller(object):
                 # maybe optimize??
                 sw1.table_add("mpls_tbl", "mpls_forward", [ str(c1_port), "0" ], [c2_mac, str(c1_port)])
                 sw1.table_add("lfa_mpls_tbl", "mpls_forward", [ str(c1_port), "0" ], [c2_mac, str(c1_port)])
+                sw1.table_add("meter_mpls_tbl", "mpls_forward", [ str(c1_port), "0" ], [c2_mac, str(c1_port)])
                 sw1.table_add("mpls_tbl", "penultimate", [ str(c1_port), "1" ], [c2_mac, str(c1_port)])
                 sw1.table_add("lfa_mpls_tbl", "penultimate", [ str(c1_port), "1" ], [c2_mac, str(c1_port)])
+                sw1.table_add("meter_mpls_tbl", "penultimate", [ str(c1_port), "1" ], [c2_mac, str(c1_port)])
 
     def fullfil_link_capcaity(self, path: tuple, req: int):
         for i in range(len(path)-1):
@@ -858,7 +864,45 @@ class Controller(object):
             if sw1.failed_link[i] in path:
                 return False
         return True
-    
+
+    def build_meter_alt_paths(self, src: City, dst: City):
+        """
+            Build the alternative paths based on the result of cal_paths()
+        """
+        all_possible_paths = self.paths[src][dst]
+        alternative_paths = []
+        logging.debug(f"[Meter-Table] All possible links between {str(src)} -> {str(dst)}")
+        logging.debug(f"[Meter-Table]  {all_possible_paths}")
+        for path, weight in all_possible_paths:
+            s = self.links_capacity[path[0]][path[1]] # Record the link capacity
+            for i in range(len(path) - 1):
+                if self.links_capacity[path[i]][path[i+1]] < s:
+                    s = self.links_capacity[path[i]][path[i+1]]
+            
+            alternative_paths.append((path, s))
+        logging.debug(f"[Meter-Table]  Alternative path \n{alternative_paths}")
+        alternative_paths.sort(key=lambda tp: tp[1])
+        if (alternative_paths[0][0] != self.best_paths[src][dst]):
+            return alternative_paths[0][0]
+        else:
+            return None
+
+    def build_meter_table(self):
+        for sw1 in self.switches:
+            c1 = sw1.city
+
+            for i in range(16):
+                if i != c1:
+                    dst_sw = self.switches[i]
+                    logging.debug(f"[Meter-Table] build alt Link between {str(sw1.city)} -> {str(dst_sw.city)}")
+                    c2 = dst_sw.city
+                    alt_path = self.build_meter_alt_paths(c1, c2)
+                    if (alt_path != None):
+                        logging.debug(f"[Meter-Table] Use Path {alt_path}")
+                        mpls_path = list(map(str, self.build_mpls_path(c1, c2, alt_path)[::-1]))
+                        sw1.dst_table_add(c2, "meter_table", f"lfa_replace_{len(mpls_path)}_hop", [sw1.host.lpm, dst_sw.host.ip], mpls_path, alt_path)
+            
+
     def build_failure_rerout(self, sw1_wf: Switch, sw2_wf: Switch):
         """ Reroute the traffic when failures are detected
         """
@@ -882,7 +926,7 @@ class Controller(object):
                         logging.debug(f"[Failure-Recover] {str(sw_l[1-i].city)} in {self.best_paths[sw_l[i].city][j]}")
                         # Find the first route with out the failed link
                         logging.debug(f"[Failure-Recover] failed_link of {str(sw_l[1-i].city)} : {sw_l[1-i].failed_link}")
-                        for p in self.all_available_path[sw_l[i].city][j]:
+                        for p in self.paths[sw_l[i].city][j]:
                             # Check the direct connect link
                             if (sw_l[1-i].city == p[0][-1]):
                                 if self.path_direct_valid(p[0], sw_l[i]):
@@ -968,6 +1012,7 @@ class Controller(object):
                 self.paths = self.cal_paths()
                 self.best_paths = self.cal_best_paths(self.paths)
                 self.build_mpls_fec(self.best_paths)
+                self.build_meter_table()
 
         
 
@@ -997,6 +1042,7 @@ class Controller(object):
             self.paths = self.cal_paths()
             self.best_paths = self.cal_best_paths(self.paths)
             self.build_mpls_fec(self.best_paths)
+            self.build_meter_table()
 
     # Aggressive reroute strategy.
     # def find_alternative_path(self, cur_links, src: City, dst: City, spd: float):
