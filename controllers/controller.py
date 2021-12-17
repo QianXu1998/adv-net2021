@@ -328,6 +328,10 @@ class Pong(threading.Thread):
                     # Read the register directly.
                     register_stamps = self.sw.controller.register_read("linkStamp")
                     self.process_stamps(register_stamps)
+                except TApplicationException:
+                    # Sometimes we get this exception.
+                    # I suspect it is caused by multithreading.
+                    pass
                 finally:
                     fports = []
                     gports = []
