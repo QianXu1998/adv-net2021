@@ -520,12 +520,12 @@ class Controller(object):
 
                 logging.debug(f"sla: {sla.type} {src_l} {src_r} {dst_l} {dst_r}")
 
-                # Port range 301-400 UDP is blocked.
-                if src_r == 400 and prot != "tcp":
+                # Port range 301-400 UDP is blocked. (but wp may contain such traffic)
+                if src_r == 400 and prot == "udp":
                     continue
                 
-                # Port range 101-400 TCP is blocked.
-                if src_l <= 400 and src_l >= 101 and prot == "tcp":
+                # Port range 201-400 TCP is blocked.
+                if src_l <= 400 and src_l >= 201 and prot == "tcp":
                     continue
                 
                 # Port range 60001-* is blocked.
