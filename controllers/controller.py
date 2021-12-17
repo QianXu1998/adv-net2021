@@ -434,7 +434,7 @@ class FlowMonitor(threading.Thread):
             try:
                 self.spd_cb(self, self.flows, now - self.last_time)
             except Exception:
-                logging.exception(f"[{str(self.sw)}] Fail to call spd_cb")
+                logging.exception(f"Fail to call spd_cb")
             self.last_time = now
             self.flows = { City(i) : {} for i in range(16) }
 
@@ -981,35 +981,36 @@ class Controller(object):
             self.best_paths = self.cal_best_paths(self.paths)
             self.build_mpls_fec(self.best_paths)
 
-    
-    # def find_alternative_path(self, src: City, dst: City, spd: float):
-    #     all_possible_paths = self.paths[src][dst]
-    #     alternative_paths = []
-    #     for p, w in all_possible_paths:
-    #         s = 0
-    #         fullfilled = True
-    #         for i in range(len(p) - 1):
-    #             s += self.links_capacity[p[i]][p[i+1]]
-    #             if self.links_capacity[p[i]][p[i+1]] < spd:
-    #                 fullfilled = False
-            
-    #         if fullfilled:
-    #             return p
-            
-    #         alternative_paths.append((p, s))
-        
-    #     # No path is fully available
-    #     alternative_paths.sort(key=lambda tp: tp[1])
-    #     return alternative_paths[0][0]
-    
+    # Aggressive reroute strategy.
     def find_alternative_path(self, src: City, dst: City, spd: float):
         all_possible_paths = self.paths[src][dst]
-        #logging.debug(f"link=\n{np.array(self.links_capacity)}")
+        alternative_paths = []
         for p, w in all_possible_paths:
-            if self.fullfil_link_capcaity(p, spd):
+            s = 0
+            fullfilled = True
+            for i in range(len(p) - 1):
+                s += self.links_capacity[p[i]][p[i+1]]
+                if self.links_capacity[p[i]][p[i+1]] < spd:
+                    fullfilled = False
+            
+            if fullfilled:
                 return p
+            
+            alternative_paths.append((p, s))
         
-        return None
+        # No path is fully available
+        alternative_paths.sort(key=lambda tp: tp[1])
+        return alternative_paths[0][0]
+    
+    # Conservative strategy: Only reroute if we indeed find one which satisfy all links.
+    # def find_alternative_path(self, src: City, dst: City, spd: float):
+    #     all_possible_paths = self.paths[src][dst]
+    #     #logging.debug(f"link=\n{np.array(self.links_capacity)}")
+    #     for p, w in all_possible_paths:
+    #         if self.fullfil_link_capcaity(p, spd):
+    #             return p
+        
+    #     return None
 
     def rt_flows(self, monitor: FlowMonitor, flows: dict, interval: float):
         #logging.debug(f"flows={flows} float={interval}")
@@ -1025,7 +1026,7 @@ class Controller(object):
             for fl, spd in fls.items():
                 c1, _, c2, _ = fl
                 spd = (spd / interval) * 8
-                if c1 == src:  
+                if c2 == src : # Make sure the flow is not dropped  
                     path = self.best_paths[c1][c2]
                     
                     for i in range(len(path) - 1):
@@ -1048,7 +1049,7 @@ class Controller(object):
 
                         if self.wps[src][dst] is None:
                             alternative_path = self.find_alternative_path(src, dst, spd)
-                            # Safe reroute strategy: Only reroute if we indeed find one which satisfy all links.
+                            
                             if alternative_path is not None:
                                 logging.debug(f"Reroute fron {path} to {alternative_path}")
                                 self.best_paths[src][dst] = alternative_path
@@ -1061,6 +1062,8 @@ class Controller(object):
                 c1 = sw1.city
                 c2 = sw2.city
                 interface = f"{str(sw1)}-eth{p}"
+                if interface not in last_information or interface not in information:
+                    continue
                 last_sent = last_information[interface].bytes_sent
                 sent = information[interface].bytes_sent
                 last_recv = last_information[interface].bytes_recv
