@@ -8,7 +8,6 @@
 const bit<16> TYPE_IPV4 = 0x800;
 const bit<16> TYPE_MPLS = 0x8847;
 const bit<16> TYPE_HEART = 0x1926;
-const bit<16> TYPE_LINK = 0x2020;
 
 // Define headers
 typedef bit<9>  egressSpec_t;
@@ -24,8 +23,8 @@ header ethernet_t {
 
 // Header definition for MPLS
 header mpls_t {
-	bit<20>  label;
-	bit<3>   exp;  // Experimental Use
+	bit<20>  label; // The MPLS label (the egress_port)
+	bit<3>   exp;
 	bit<1>   s;    // Bottom of the stack
 	bit<8>   ttl;
 }
@@ -35,12 +34,6 @@ header heart_t {
     bit<1>    from_cp;
     bit<6>    padding;
 }
-
-// header link_state_t {
-//     bit<7> port; // At most 8 ports
-//     bit<1> value;
-//     bit<8> padding;
-// }
 
 header ipv4_t {
     bit<4>    version;
@@ -84,26 +77,16 @@ header udp_t {
     bit<16> checksum;
 }
 
-struct digest_t {
-    bit<48> stamp;
-    //bit<7> padding;
-    bit<9> port;
-}
-
 // Instantiate metadata fields
 struct metadata {
-	digest_t hb;
-    bit<1>   link_State;
-    bit<2>   meter_color;  // Level of rate limiting
-    bit<48>  tmp_stamp;
-    bit<64>  tmp_size;
+    bit<1>   link_State; // The link state of egress port.
+    bit<2>   meter_color; // Current meter color.
+    bit<48>  tmp_stamp; // Temp values to store timestamps.
 }
 
-// Instantiate packet headers
 struct headers {
 	ethernet_t                    ethernet;
     heart_t                       heart;
-    // link_state_t                  link_state;
 	mpls_t[CONST_MAX_HOPS]        mpls;
 	ipv4_t                        ipv4;
     tcp_t                         tcp;

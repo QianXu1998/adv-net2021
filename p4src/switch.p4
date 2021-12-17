@@ -2,14 +2,15 @@
 #include <core.p4>
 #include <v1model.p4>
 
-//My includes
 #include "include/headers.p4"
 #include "include/parsers.p4"
 
+// It should be 9, but a bit more is safe anyway/
 #define N_PORTS 12
 
 // Define Linkstate Register, used to indicate failure, 0 = Fine, 1 = Failed
 register<bit<1>>(N_PORTS) linkState;
+// Last time the link is active (either from a heartbeat or a normal packet)
 register<bit<48>>(N_PORTS) linkStamp;
 
 /*************************************************************************
@@ -35,6 +36,11 @@ control MyIngress(inout headers hdr,
         mark_to_drop(standard_metadata);
     }
 
+    /*
+     *  This table implements something like iptables for TCP.
+     *
+     *  The default_action will be changed to drop once we setup all rules.
+     */
     table tcp_sla {
         key = {
             standard_metadata.ingress_port: exact;
@@ -51,6 +57,11 @@ control MyIngress(inout headers hdr,
         size = 4096;
     }
 
+    /*
+     * This table implements something like iptables for UDP.
+     *
+     * The default_action will be changed to drop once we setup all rules.
+     */
     table udp_sla {
         key = {
             standard_metadata.ingress_port: exact;
@@ -69,7 +80,6 @@ control MyIngress(inout headers hdr,
 
     action read_port(bit<9> port_index) {
         linkState.read(meta.link_State, (bit<32>)port_index);
-        
     }
 
     action ipv4_forward(macAddr_t dstAddr, egressSpec_t port) {
@@ -453,7 +463,11 @@ control MyIngress(inout headers hdr,
         hdr.mpls[0].s = 0;
     }
 
-    // Define FEC Table for ingress port
+    /*
+     * This table is used to add MPLS stack.
+     * 
+     * Note we also have a rate limiting meter here.
+     */
     table FEC_tbl {
         key = {
             hdr.ipv4.srcAddr: lpm;
@@ -477,17 +491,15 @@ control MyIngress(inout headers hdr,
         size = 256;
     }
 
-    // Define MPLS forward table
+
     action mpls_forward(macAddr_t dstAddr, egressSpec_t port) {
         hdr.ethernet.srcAddr = hdr.ethernet.dstAddr;
         hdr.ethernet.dstAddr = dstAddr;
 
         standard_metadata.egress_spec = port;
         read_port(standard_metadata.egress_spec);
-        // hdr.mpls[1].failure_indication = meta.link_State;
 
         hdr.mpls[1].ttl = hdr.mpls[0].ttl - 1;
-        // hdr.mpls[1].index = hdr.mpls[1].index - 1;
 
         hdr.mpls.pop_front(1);
     }
@@ -506,6 +518,10 @@ control MyIngress(inout headers hdr,
         
     }
 
+    
+    /*
+     * This table is used to forward MPLS packet.
+     */
     table mpls_tbl {
         key = {
             hdr.mpls[0].label: exact;
@@ -593,6 +609,18 @@ control MyIngress(inout headers hdr,
         mpls_ingress_9_hop(label_1, label_2, label_3, label_4, label_5, label_6, label_7, label_8, label_9);
     }
 
+    /*
+     * This table is used to re-build the MPLS stack once a link failure is detected.
+     *
+     *              s3
+     *          /        \
+     *        /            \
+     * h0 -- s1 ----   s2  ---- s4 --- h1
+     *
+     *
+     * If s1 - s2 is failed but the packets sent from h1 is already on the way, the rebuild
+     * happens on both s1 and s4 to make the packet go to s3 instead.
+     */
     table LFA_REP_tbl {
         key = {
             // hdr.ipv4.srcAddr: lpm;
@@ -615,11 +643,6 @@ control MyIngress(inout headers hdr,
         size = 256;
     }
 
-    // Define link update table
-    // action update_link() {
-    //     linkState.write((bit<32>)hdr.link_state.port, hdr.link_state.value);
-    // }
-
     table lfa_mpls_tbl {
         key = {
             hdr.mpls[0].label: exact;
@@ -634,79 +657,53 @@ control MyIngress(inout headers hdr,
         size = 256;
     }
 
-    // Define meter reroute table
-    // The following two tables will be called when color is read
-    table meter_table {
-        key = {
-            hdr.ipv4.srcAddr: lpm;
-            hdr.ipv4.dstAddr: exact;
-        }
-        actions = {
-            lfa_replace_1_hop;
-            lfa_replace_2_hop;
-            lfa_replace_3_hop;
-            lfa_replace_4_hop;
-            lfa_replace_5_hop;
-            lfa_replace_6_hop;
-            lfa_replace_7_hop;
-            lfa_replace_8_hop;
-            lfa_replace_9_hop;
-            drop;
-        }
-        default_action = drop();
-        size = 256;
-    }
-
-    table meter_mpls_tbl {
-        key = {
-            hdr.mpls[0].label: exact;
-            hdr.mpls[0].s: exact;
-        }
-        actions = {
-            mpls_forward;
-            penultimate;
-            NoAction;
-        }
-        default_action = NoAction();
-        size = 256;
-    }
 
     apply {
-        /* Ingress Pipeline Control Logic */
+
+        // If we receive an ethernet frame, it means that the link is not failed so we update the register.
+        if(hdr.ethernet.isValid()) {
+            
+            // atomic guarantees that the timestamp is monotonous.
+            // but it's pretty slow... sadly
+            @atomic {
+                linkStamp.read(meta.tmp_stamp, (bit<32>)standard_metadata.ingress_port);
+                if (standard_metadata.ingress_global_timestamp > meta.tmp_stamp) {
+                    linkStamp.write((bit<32>)standard_metadata.ingress_port, standard_metadata.ingress_global_timestamp);
+                }
+            }
+
+        }
+
+        // Our heartbeat packet is not a valid ipv4 packet.
         if (hdr.heart.isValid()) {
-            if (hdr.heart.from_cp == 1) {
+            if (hdr.heart.from_cp == 1) { // It is sent from controller.
                 hdr.heart.from_cp = 0;
                 standard_metadata.egress_spec = hdr.heart.port;
             } else {
-                // meta.hb.stamp = standard_metadata.ingress_global_timestamp;
-                // meta.hb.port = standard_metadata.ingress_port;
-                // digest<digest_t>(1, meta.hb);
+                // We should have updated the link status. Drop it.
                 mark_to_drop(standard_metadata);
             }
         }  else {
-            if(hdr.ethernet.isValid()) {
-
-                @atomic {
-                    linkStamp.read(meta.tmp_stamp, (bit<32>)standard_metadata.ingress_port);
-                    if (standard_metadata.ingress_global_timestamp > meta.tmp_stamp) {
-                        linkStamp.write((bit<32>)standard_metadata.ingress_port, standard_metadata.ingress_global_timestamp);
-                    }
-                }
-                
-            }
+            
+            // Check if packets should be dropped by our firewalls.
             if (hdr.tcp.isValid() && (!tcp_sla.apply().hit)) {
                 return;
             }
             if (hdr.udp.isValid() && (!udp_sla.apply().hit)){
                 return;
             }
+
+            // Build MPLS stack if necessary.
             if(hdr.ipv4.isValid()){
                 FEC_tbl.apply();
             }
+
+            // Foward the packet.
             if(hdr.mpls[0].isValid()){
                 mpls_tbl.apply();
             }
-            // This part can be optimized , waste one cycle of manipulating the packet
+
+            // If the link is failed, rebuild the stack.
             if(meta.link_State > 0){
                 LFA_REP_tbl.apply();
                 if(hdr.mpls[0].isValid()){
@@ -715,7 +712,8 @@ control MyIngress(inout headers hdr,
             }
         }
 
-        /* If meter is not green then drop (Can be optimized, may not be that strict) */
+        // Drop packets according to meter.
+        // The actual rules are from full.slas.
         if (meta.meter_color != 0) {
             if ((hdr.udp.isValid()) && (hdr.udp.srcPort >= 101) && (hdr.udp.srcPort <= 200) && (hdr.udp.dstPort >= 101) && (hdr.udp.dstPort <= 201)){
                 drop();
@@ -723,10 +721,6 @@ control MyIngress(inout headers hdr,
             if ((hdr.udp.isValid()) && (hdr.udp.srcPort >= 201) && (hdr.udp.srcPort <= 300) && (hdr.udp.dstPort >= 201) && (hdr.udp.dstPort <= 301)){
                 drop();
             }
-            // meter_table.apply();
-            // if(hdr.mpls[0].isValid()){
-            //     meter_mpls_tbl.apply();
-            // }
         }
     }
 }
@@ -739,6 +733,7 @@ control MyEgress(inout headers hdr,
                  inout metadata meta,
                  inout standard_metadata_t standard_metadata) {
     apply {
+        // When we are going to transmit a packet, mark the link is up.
         if(hdr.ethernet.isValid()) {
 
             @atomic {
