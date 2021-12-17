@@ -402,9 +402,11 @@ class FlowMonitor(threading.Thread):
             if tcp is not None:
                 sport = tcp.sport
                 dport = tcp.dport
+                proto = "tcp"
             else:
                 sport = udp.sport
                 dport = udp.dport
+                proto = "udp"
 
             # src_ip = get_field_bytes(ip, "src")
             # dst_ip = get_field_bytes(ip, "dst")
@@ -419,7 +421,7 @@ class FlowMonitor(threading.Thread):
                 return
             dst_city = self.hosts[dst_ip].city
 
-            fl = (src_city, sport, dst_city, dport)
+            fl = (src_city, sport, dst_city, dport, proto)
 
             if fl not in self.flows[city]:
                 self.flows[city][fl] = 0
@@ -427,14 +429,14 @@ class FlowMonitor(threading.Thread):
             whole_size = len(pkt)
             self.flows[city][fl] += whole_size
         
-        now = datetime.now().timestamp()
+        now = pkt.time
 
         if now - self.last_time > self.interval:
             try:
                 self.spd_cb(self, self.flows, now - self.last_time)
             except Exception:
                 logging.exception(f"Fail to call spd_cb")
-            self.last_time = datetime.now().timestamp()
+            self.last_time = now
             self.flows = { City(i) : {} for i in range(16) }
 
     def run(self):
@@ -1041,7 +1043,7 @@ class Controller(object):
         cur_links_map = [ [ [] for _ in range(16) ] for _ in range(16)]
         for src, fls in flows.items():
             for fl, spd in fls.items():
-                c1, _, c2, _ = fl
+                c1, _, c2, _, _ = fl
                 spd = (spd / interval) * 8
                 #logging.debug(f"[{str(City(src))}] {str(City(c1))} -> {str(City(c2))}: spd={spd}")
                 if c2 == src : # Make sure the flow is not dropped  
@@ -1050,7 +1052,7 @@ class Controller(object):
         
         for src, fls in flows.items():
             for fl, spd in fls.items():
-                c1, _, c2, _ = fl
+                c1, _, c2, _, _ = fl
                 spd = (spd / interval) * 8
                 #logging.debug(f"[{str(City(src))}] {str(City(c1))} -> {str(City(c2))}: spd={spd}")
                 if c2 == src : # Make sure the flow is not dropped  
@@ -1065,8 +1067,8 @@ class Controller(object):
                                 logging.debug(f"Reroute from {self.best_paths[c1][c2]} to {p} for cur={cur_average_capa} new={aver}")
                                 self.best_paths[c1][c2] = p
                                 self.build_mpls_from_to(c1, c2, p)
-                                sub_cur_link_by_path(cur_links, p, spd)
                                 break
+                        sub_cur_link_by_path(cur_links, self.best_paths[c1][c2], spd)
 
                             
         #logging.debug(f"cur_links={np.array(cur_links)}")
@@ -1123,7 +1125,7 @@ class Controller(object):
     def start_monitor(self):
         ts = []
         #ts.append(LinkMonitor(self.rt_speed, 0.5))
-        ts.append(FlowMonitor(self.switches, self.rt_flows, 1))
+        ts.append(FlowMonitor(self.switches, self.rt_flows, 0.5))
 
         for i in range(16):
             c1 = City(i)
