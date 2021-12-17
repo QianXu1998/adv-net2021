@@ -1,7 +1,6 @@
 """Template of an empty global controller"""
 import argparse
 import csv
-from os import path
 from advnet_utils.input_parsers import parse_traffic
 from advnet_utils.sla import cleanfile, make_sla
 from p4utils.utils.helper import load_topo
@@ -435,7 +434,7 @@ class FlowMonitor(threading.Thread):
                 self.spd_cb(self, self.flows, now - self.last_time)
             except Exception:
                 logging.exception(f"Fail to call spd_cb")
-            self.last_time = now
+            self.last_time = datetime.now().timestamp()
             self.flows = { City(i) : {} for i in range(16) }
 
     def run(self):
@@ -511,14 +510,16 @@ class Controller(object):
                         sw1.table_add(tname, "NoAction", [str(sw1.host.sw_port), sw2.host.lpm, f"{src_l}->{src_r}", f"{dst_l}->{dst_r}"], [], 1 + int(dst_city) + sla_idx * len(self.slas))
                         sw2.table_add(tname, "NoAction", [str(sw2.host.sw_port), sw1.host.lpm, f"{dst_l}->{dst_r}", f"{src_l}->{src_r}"], [], 1 + int(dst_city) + sla_idx * len(self.slas))
 
-                for p in sw1.sw_ports.keys():
-                    sw1.table_add("tcp_sla", "NoAction", [str(p), "0.0.0.0/0", "0->65535", "0->65535"], [], 0)
-                    sw1.table_add("udp_sla", "NoAction", [str(p), "0.0.0.0/0", "0->65535", "0->65535"], [], 0)
         
         for sw in self.switches:
+
+            for p in sw.sw_ports.keys():
+                sw.table_add("tcp_sla", "NoAction", [str(p), "0.0.0.0/0", "0->65535", "0->65535"], [], 0)
+                sw.table_add("udp_sla", "NoAction", [str(p), "0.0.0.0/0", "0->65535", "0->65535"], [], 0)
+
             sw.controller.table_set_default("tcp_sla", "drop")
             sw.controller.table_set_default("udp_sla", "drop")
-    
+            
     def init(self):
         """Basic initialization. Connects to switches and resets state."""
         self.connect_to_switches()
@@ -982,25 +983,25 @@ class Controller(object):
             self.build_mpls_fec(self.best_paths)
 
     # Aggressive reroute strategy.
-    def find_alternative_path(self, src: City, dst: City, spd: float):
-        all_possible_paths = self.paths[src][dst]
-        alternative_paths = []
-        for p, w in all_possible_paths:
-            s = 0
-            fullfilled = True
-            for i in range(len(p) - 1):
-                s += self.links_capacity[p[i]][p[i+1]]
-                if self.links_capacity[p[i]][p[i+1]] < spd:
-                    fullfilled = False
+    # def find_alternative_path(self, cur_links, src: City, dst: City, spd: float):
+    #     all_possible_paths = self.paths[src][dst]
+    #     alternative_paths = []
+    #     for p, w in all_possible_paths:
+    #         s = 0
+    #         fullfilled = True
+    #         for i in range(len(p) - 1):
+    #             s += cur_links[p[i]][p[i+1]]
+    #             if self.links_capacity[p[i]][p[i+1]] < spd:
+    #                 fullfilled = False
             
-            if fullfilled:
-                return p
+    #         if fullfilled:
+    #             return p
             
-            alternative_paths.append((p, s))
+    #         alternative_paths.append((p, s))
         
-        # No path is fully available
-        alternative_paths.sort(key=lambda tp: tp[1])
-        return alternative_paths[0][0]
+    #     # No path is fully available
+    #     alternative_paths.sort(key=lambda tp: tp[1])
+    #     return alternative_paths[0][0]
     
     # Conservative strategy: Only reroute if we indeed find one which satisfy all links.
     # def find_alternative_path(self, src: City, dst: City, spd: float):
@@ -1012,8 +1013,24 @@ class Controller(object):
         
     #     return None
 
+    
+
+    
+
     def rt_flows(self, monitor: FlowMonitor, flows: dict, interval: float):
         #logging.debug(f"flows={flows} float={interval}")
+
+        def sub_cur_link_by_path(cur_links: list, path: list, spd: float):
+            for i in range(len(path) - 1):
+                cur_links[path[i]][path[i+1]] -= spd
+
+        def cal_average_capcacity(path: list, cur_links: list):
+            s = 0
+            for i in range(len(path) - 1):
+                s += cur_links[path[i]][path[i+1]]
+
+            return s / (len(path) - 1)
+
         cur_links = [ [ 0 for _ in range(16) ] for _ in range(16)]
 
         for c1 in self.weights:
@@ -1026,35 +1043,54 @@ class Controller(object):
             for fl, spd in fls.items():
                 c1, _, c2, _ = fl
                 spd = (spd / interval) * 8
+                #logging.debug(f"[{str(City(src))}] {str(City(c1))} -> {str(City(c2))}: spd={spd}")
                 if c2 == src : # Make sure the flow is not dropped  
-                    path = self.best_paths[c1][c2]
-                    
-                    for i in range(len(path) - 1):
-                        # Substract every link by the flow speed
-                        cur_links[path[i]][path[i+1]] -= spd
-                        # Create a reverse mapping for all paths which contains the specific link
-                        cur_links_map[path[i]][path[i+1]].append( (c1, c2, spd, path) )
+                    sub_cur_link_by_path(cur_links, self.best_paths[c1][c2], spd)
+
         
+        for src, fls in flows.items():
+            for fl, spd in fls.items():
+                c1, _, c2, _ = fl
+                spd = (spd / interval) * 8
+                #logging.debug(f"[{str(City(src))}] {str(City(c1))} -> {str(City(c2))}: spd={spd}")
+                if c2 == src : # Make sure the flow is not dropped  
+                    if self.wps[c1][c2] is None:
+                        # Restore current links status and then make decision
+                        sub_cur_link_by_path(cur_links, self.best_paths[c1][c2], -spd)
+                        cur_average_capa = cal_average_capcacity(self.best_paths[c1][c2], cur_links)
+                        for p, _ in self.paths[c1][c2]:
+                            aver = cal_average_capcacity(p, cur_links)
+                            if cur_average_capa != 1e7 and ( aver > cur_average_capa * 1.1 or aver == 1e7 ):
+                                # Do reroute
+                                logging.debug(f"Reroute from {self.best_paths[c1][c2]} to {p} for cur={cur_average_capa} new={aver}")
+                                self.best_paths[c1][c2] = p
+                                self.build_mpls_from_to(c1, c2, p)
+                                sub_cur_link_by_path(cur_links, p, spd)
+                                break
+
+                            
         #logging.debug(f"cur_links={np.array(cur_links)}")
 
-        for c1 in self.weights:
-            for c2 in self.weights[c1]:
-                # A link is overloaded!
-                #logging.debug(f"{c1} {c2} {cur_links[c1][c2]}")
-                if cur_links[c1][c2] < 0:
-                    # The paths to reroute
-                    paths = cur_links_map[c1][c2]
-                    #logging.debug(f"paths={paths}")
-                    for src, dst, spd, path in paths:
+        # for c1 in self.weights:
+        #     for c2 in self.weights[c1]:
+        #         # A link is overloaded!
+        #         #logging.debug(f"{c1} {c2} {cur_links[c1][c2]}")
+        #         if cur_links[c1][c2] < 0:
+        #             # The paths to reroute
+        #             paths = cur_links_map[c1][c2]
+        #             #logging.debug(f"paths={paths}")
+        #             for src, dst, spd, path in paths:
 
-                        if self.wps[src][dst] is None:
-                            alternative_path = self.find_alternative_path(src, dst, spd)
+        #                 if self.wps[src][dst] is None:
+        #                     alternative_path = self.find_alternative_path(cur_links, src, dst, spd)
                             
-                            if alternative_path is not None:
-                                logging.debug(f"Reroute fron {path} to {alternative_path}")
-                                self.best_paths[src][dst] = alternative_path
-                                self.build_mpls_from_to(src, dst, alternative_path)
-                                return
+        #                     if alternative_path is not None:
+        #                         logging.debug(f"Reroute fron {path} to {alternative_path}")
+        #                         self.best_paths[src][dst] = alternative_path
+        #                         self.build_mpls_from_to(src, dst, alternative_path)
+        #                         return
+
+    
 
     def rt_speed(self, last_information: dict, information: dict, interval: float):
         for sw1 in self.switches:
@@ -1086,8 +1122,8 @@ class Controller(object):
 
     def start_monitor(self):
         ts = []
-        ts.append(LinkMonitor(self.rt_speed, 0.5))
-        ts.append(FlowMonitor(self.switches, self.rt_flows, 0.5))
+        #ts.append(LinkMonitor(self.rt_speed, 0.5))
+        ts.append(FlowMonitor(self.switches, self.rt_flows, 1))
 
         for i in range(16):
             c1 = City(i)
@@ -1103,7 +1139,7 @@ class Controller(object):
                     pass
         
         for i in range(16):
-            ts.append(Pong(self.switches[i], 0.5, self.has_failure, self.no_failure))
+            ts.append(Pong(self.switches[i], 0.8, self.has_failure, self.no_failure))
         #ts.append(Pong(self.switches[City.AMS], 0.5, self.has_failure, self.no_failure, self.rt_speed))
         
         for t in ts:
