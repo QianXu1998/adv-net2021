@@ -950,7 +950,7 @@ class Controller(object):
                 logging.debug(f"[REGISTER READ] {str(City.PAR)} : linkState[{register_read_value}]")
                 self.paths = self.cal_paths()
                 self.best_paths = self.cal_best_paths(self.paths)
-                self.build_mpls_fec()
+                self.build_mpls_fec(self.best_paths)
 
         
 
