@@ -954,7 +954,7 @@ class Controller(object):
         sw_l.append(sw1_wf)
         sw_l.append(sw2_wf)
 
-        # Add the failed link to sw.failed_link
+        # Add the failed link to sw.failed_link to avoid conflicts in the lfa table
         sw1_wf.failed_link.append(sw2_wf.city)
         sw2_wf.failed_link.append(sw1_wf.city)
 
@@ -971,8 +971,8 @@ class Controller(object):
                         # Find the first route with out the failed link
                         logging.debug(f"[Failure-Recover] failed_link of {str(sw_l[1-i].city)} : {sw_l[1-i].failed_link}")
                         for p in self.paths[sw_l[i].city][j]:
-                            # Check the direct connect link
                             if (sw_l[1-i].city == p[0][-1]):
+                                # The target city is directly connected with the src city
                                 if self.path_direct_valid(p[0], sw_l[i]):
                                     # The failed link is directly connected to the destination
                                     dst_sw = self.switches[j]
@@ -988,6 +988,7 @@ class Controller(object):
                                         logging.debug(f"[Failure-Recover] [{str(sw_l[i].city)}] -> [{str(dst_sw.city)}] Path Change table_modify LFA_REP_tbl {action_name} {match_keys} {mpls_path}")
                                         break
                                     else:
+                                        # If the dst is not in the table
                                         mpls_path = list(map(str, self.mpls_path_rebuild(p[0])[::-1]))
                                         handle_1 = sw_l[i].table_add("LFA_REP_tbl", f"lfa_replace_{len(p[0]) - 1}_hop", [dst_sw.host.ip], mpls_path)
                                         sw_l[i].in_reroute_table[dst_sw.host.ip] = handle_1
@@ -1011,6 +1012,7 @@ class Controller(object):
                                     logging.debug(f"[Failure-Recover] [{str(sw_l[i].city)}] -> [{str(dst_sw.city)}] Path Change table_modify LFA_REP_tbl {action_name} {match_keys} {mpls_path}")
                                     break
                                 else:
+                                    # If the dst is not in the table
                                     mpls_path = list(map(str, self.mpls_path_rebuild(p[0])[::-1]))
                                     handle_1 = sw_l[i].table_add("LFA_REP_tbl", f"lfa_replace_{len(p[0]) - 1}_hop", [dst_sw.host.ip], mpls_path)
                                     sw_l[i].in_reroute_table[dst_sw.host.ip] = handle_1
@@ -1018,18 +1020,7 @@ class Controller(object):
                                     match_keys = [dst_sw.host.ip]
                                     logging.debug(f"[Failure-Recover] [{str(sw_l[i].city)}] -> [{str(dst_sw.city)}] Path Change table_add LFA_REP_tbl {action_name} {match_keys} {mpls_path}")
                                     break
-                    # Match with ipv4_forward 
-                    # else:
-                        # Keep the original route
-                        # path = self.best_paths[sw_l[i].city][j]
-                        # dst_sw = self.switches[j]
-                        # mpls_path = list(map(str, self.mpls_path_rebuild(path)[::-1]))
-                        # sw_l[i].table_add("LFA_REP_tbl", f"lfa_replace_{len(path) - 1}_hop", [dst_sw.host.ip], mpls_path)
-                        # action_name = f"lfa_replace_{len(path) - 1}_hop"
-                        # match_keys = [str(dst_sw.host.ip)]
-                        # logging.debug(f"[Failure-Recover] [{str(sw_l[i].city)}] -> [{str(dst_sw.city)}] Path remains, table_add LFA_REP_tbl {action_name} {match_keys} {mpls_path}")
-
-
+                    
 
     def has_failure(self, pong: Pong, ports: list):
         sw2 = pong.sw
