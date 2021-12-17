@@ -715,7 +715,7 @@ control MyIngress(inout headers hdr,
         // Drop packets according to meter.
         // The actual rules are from full.slas.
         if (meta.meter_color != 0) {
-            if ((hdr.udp.isValid()) && (hdr.udp.srcPort >= 101) && (hdr.udp.srcPort <= 200) && (hdr.udp.dstPort >= 101) && (hdr.udp.dstPort <= 201)){
+            if ((hdr.udp.isValid()) && (hdr.udp.srcPort >= 1) && (hdr.udp.srcPort <= 200) && (hdr.udp.dstPort >= 1) && (hdr.udp.dstPort <= 201)){
                 drop();
             }
             if ((hdr.udp.isValid()) && (hdr.udp.srcPort >= 201) && (hdr.udp.srcPort <= 300) && (hdr.udp.dstPort >= 201) && (hdr.udp.dstPort <= 301)){

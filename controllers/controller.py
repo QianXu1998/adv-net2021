@@ -638,7 +638,7 @@ class Controller(object):
         handle_1 = sw1.dst_table_add(c2, "FEC_tbl", f"mpls_ingress_{len(mpls_path)}_hop", [sw1.host.lpm, sw2.host.ip], mpls_path, path)
 
         # Add meters
-        sw1.set_direct_meter_bandwidth('rate_limiting_meter', handle_1, 0.001, 0.001, 1600, 1600)
+        sw1.set_direct_meter_bandwidth('rate_limiting_meter', handle_1, 0.00085, 0.00085, 1600, 1600)
 
     def build_mpls_forward_table(self):
         """
