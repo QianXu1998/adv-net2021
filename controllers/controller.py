@@ -24,7 +24,7 @@ import copy
 import psutil
 
 # TODO: remove logging to speedup
-logging.basicConfig(filename='/tmp/controller.log', format="[%(levelname)s] %(message)s", level=logging.DEBUG)
+logging.basicConfig(format="[%(levelname)s] %(message)s", level=logging.DEBUG)
 
 # Some naming convention:
 #   c1 -> city1
@@ -524,8 +524,8 @@ class Controller(object):
                 if src_r == 400 and prot == "udp":
                     continue
                 
-                # Port range 201-400 TCP is blocked.
-                if src_l <= 400 and src_l >= 201 and prot == "tcp":
+                # Port range 301-400 TCP is blocked.
+                if src_l <= 400 and src_l >= 301 and prot == "tcp":
                     continue
                 
                 # Port range 60001-* is blocked.

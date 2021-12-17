@@ -704,12 +704,12 @@ control MyIngress(inout headers hdr,
             }
 
             // If the link is failed, rebuild the stack.
-            if(meta.link_State > 0){
-                LFA_REP_tbl.apply();
-                if(hdr.mpls[0].isValid()){
-                    lfa_mpls_tbl.apply();
-                }
-            }
+            // if(meta.link_State > 0){
+            //     LFA_REP_tbl.apply();
+            //     if(hdr.mpls[0].isValid()){
+            //         lfa_mpls_tbl.apply();
+            //     }
+            // }
         }
 
         // Drop packets according to meter.
