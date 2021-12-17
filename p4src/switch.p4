@@ -659,11 +659,11 @@ control MyIngress(inout headers hdr,
                 }
                 
             }
-            if (hdr.tcp.isValid()) {
-                tcp_sla.apply();
+            if (hdr.tcp.isValid() && (!tcp_sla.apply().hit)) {
+                return;
             }
-            if (hdr.udp.isValid()){
-                udp_sla.apply();
+            if (hdr.udp.isValid() && (!udp_sla.apply().hit)){
+                return;
             }
             if(hdr.ipv4.isValid()){
                 FEC_tbl.apply();
