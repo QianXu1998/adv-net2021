@@ -488,39 +488,46 @@ class Controller(object):
         return (l, r)
 
     def allow_sla_flows(self):
-        for sla_idx, sla in enumerate(self.slas):
-            src_cities = self.parse_city_str(sla.src)
-            dst_cities = self.parse_city_str(sla.dst)
+        try:
+            for sla_idx, sla in enumerate(self.slas):
+                src_cities = self.parse_city_str(sla.src)
+                dst_cities = self.parse_city_str(sla.dst)
 
-            src_l, src_r = self.parse_port_range(sla.sport)
-            dst_l, dst_r = self.parse_port_range(sla.dport)
+                src_l, src_r = self.parse_port_range(sla.sport)
+                dst_l, dst_r = self.parse_port_range(sla.dport)
 
-            prot = sla.protocol
+                prot = sla.protocol
 
-            if prot == "udp":
-                tname = "udp_sla"
-            else:
-                tname = "tcp_sla"
+                if prot == "udp":
+                    tname = "udp_sla"
+                else:
+                    tname = "tcp_sla"
 
-            for src_city in src_cities:
-                sw1 = self.switches[src_city] # type: Switch
-                
-                for dst_city in dst_cities:
-                    if src_city != dst_city:
-                        sw2 = self.switches[dst_city] # type: Switch
+                logging.debug(f"sla: {sla.type} {src_l} {src_r} {dst_l} {dst_r}")
+                if src_l <= 400 and src_l >= 101:
+                    continue
 
-                        sw1.table_add(tname, "NoAction", [str(sw1.host.sw_port), sw2.host.lpm, f"{src_l}->{src_r}", f"{dst_l}->{dst_r}"], [], 1 + int(dst_city) + sla_idx * len(self.slas))
-                        sw2.table_add(tname, "NoAction", [str(sw2.host.sw_port), sw1.host.lpm, f"{dst_l}->{dst_r}", f"{src_l}->{src_r}"], [], 1 + int(dst_city) + sla_idx * len(self.slas))
+                for src_city in src_cities:
+                    sw1 = self.switches[src_city] # type: Switch
+                    
+                    for dst_city in dst_cities:
+                        if src_city != dst_city:
+                            sw2 = self.switches[dst_city] # type: Switch
 
-        
-        for sw in self.switches:
+                            sw1.table_add(tname, "NoAction", [str(sw1.host.sw_port), sw2.host.lpm, f"{src_l}->{src_r}", f"{dst_l}->{dst_r}"], [], 1 + int(dst_city) + sla_idx * len(self.slas))
+                            sw2.table_add(tname, "NoAction", [str(sw2.host.sw_port), sw1.host.lpm, f"{dst_l}->{dst_r}", f"{src_l}->{src_r}"], [], 1 + int(dst_city) + sla_idx * len(self.slas))
 
-            for p in sw.sw_ports.keys():
-                sw.table_add("tcp_sla", "NoAction", [str(p), "0.0.0.0/0", "0->65535", "0->65535"], [], 0)
-                sw.table_add("udp_sla", "NoAction", [str(p), "0.0.0.0/0", "0->65535", "0->65535"], [], 0)
+            
+            for sw in self.switches:
 
-            sw.controller.table_set_default("tcp_sla", "drop")
-            sw.controller.table_set_default("udp_sla", "drop")
+                for p in sw.sw_ports.keys():
+                    sw.table_add("tcp_sla", "NoAction", [str(p), "0.0.0.0/0", "0->65535", "0->65535"], [], 0)
+                    sw.table_add("udp_sla", "NoAction", [str(p), "0.0.0.0/0", "0->65535", "0->65535"], [], 0)
+
+                sw.controller.table_set_default("tcp_sla", "drop")
+                sw.controller.table_set_default("udp_sla", "drop")
+        except Exception:
+            logging.exception("Adding sla")
             
     def init(self):
         """Basic initialization. Connects to switches and resets state."""
@@ -529,7 +536,7 @@ class Controller(object):
         self.build_topo()
         self.sanity_check()
         self.parse_inputs()
-        #self.allow_sla_flows()
+        self.allow_sla_flows()
 
         # Test thrift_api
         # self.thrift_controller = ThriftAPI(9100, "10.0.11.1/24", "none")
@@ -1150,12 +1157,9 @@ class Controller(object):
         return ts
 
     def run(self):
-        set_sla = threading.Thread(target=self.allow_sla_flows, args=(self,))
-        set_sla.start()
 
         monitors = self.start_monitor()
 
-        monitors += [set_sla]
         for m in monitors:
             m.join()
 
