@@ -370,17 +370,27 @@ def get_field_bytes(pkt, name):
 
 class FlowMonitor(threading.Thread):
 
-    def __init__(self, sw: Switch, spd_cb: callable, interval=0.5):
+    def __init__(self, switches: list, spd_cb: callable, interval=0.5):
         super().__init__()
-        self.sw = sw
+        self.switches = switches
         self.spd_cb = spd_cb
         self.interval = interval
         self.last_time = None
-        self.flows = {}
+        self.flows = { City(i) : {} for i in range(16) }
+        self.interfaces = {sw.host.sw_interface : sw for sw in self.switches}
+        self.hosts = {sw.host.ip : sw for sw in self.switches}
 
     def parse(self, pkt: Packet):
         
+        iface = pkt.sniffed_on
+        if iface is None:
+            return
 
+        if iface not in self.interfaces:
+            logging.warning(f"Packet on {iface} not in {self.interfaces}")
+            return
+
+        city = self.interfaces[iface].city
         ip = pkt.getlayer(IP)
 
         if ip is not None:
@@ -400,31 +410,41 @@ class FlowMonitor(threading.Thread):
             # src_ip = get_field_bytes(ip, "src")
             # dst_ip = get_field_bytes(ip, "dst")
             src_ip = ip.src
+            if src_ip not in self.hosts:
+                logging.warning(f"src_ip={src_ip} not in {self.hosts}")
+                return
+            src_city = self.hosts[src_ip].city
             dst_ip = ip.dst
+            if dst_ip not in self.hosts:
+                logging.warning(f"dst_ip={dst_ip} not in {self.hosts}")
+                return
+            dst_city = self.hosts[dst_ip].city
 
-            fl = (src_ip, sport, dst_ip, dport)
+            fl = (src_city, sport, dst_city, dport)
 
-            if fl not in self.flows:
-                self.flows[fl] = 0
+            if fl not in self.flows[city]:
+                self.flows[city][fl] = 0
 
             whole_size = len(pkt)
-            self.flows[fl] += whole_size
+            self.flows[city][fl] += whole_size
         
         now = datetime.now().timestamp()
 
         if now - self.last_time > self.interval:
-            if len(self.flows) > 0:
-                try:
-                    self.spd_cb(self, { k: (v/(now - self.last_time))*8 for k, v in self.flows.items() })
-                except Exception:
-                    logging.exception(f"[{str(self.sw)}] Fail to call spd_cb")
+            try:
+                self.spd_cb(self, self.flows, now - self.last_time)
+            except Exception:
+                logging.exception(f"[{str(self.sw)}] Fail to call spd_cb")
             self.last_time = now
-            self.flows = {}
+            self.flows = { City(i) : {} for i in range(16) }
 
     def run(self):
-        intf = self.sw.host.sw_interface
         self.last_time = datetime.now().timestamp()
-        sniff(iface=intf, prn=self.parse)
+        logging.debug(f"Monitor flow on: {list(self.interfaces.keys())}")
+        try:
+            sniff(iface=list(self.interfaces.keys()), prn=self.parse)
+        except Exception:
+            logging.exception("Fail to monitor flow")
 
 class Controller(object):
 
@@ -439,6 +459,7 @@ class Controller(object):
         self.switches = [Switch(City(i)) for i in range(16)]
         self.all_available_path = []
         self.thrift_controller = None
+        self.wps = [ [None for __ in range(16)] for _ in range(16) ]
         self.init()
 
     def parse_inputs(self):
@@ -528,7 +549,7 @@ class Controller(object):
     def pprint_topo(self):
         for sw in self.switches:
             for neigh_city, attrs in sw.sw_links.items():
-                logging.debug(f"{str(sw)}:{attrs['port']} -> {str(neigh_city)} port_mac: {attrs['mac']}")
+                logging.debug(f"{str(sw)}:{attrs['port']} -> {str(neigh_city)} port_mac: {attrs['mac']} weights: {self.weights[sw.city][neigh_city]}")
             logging.debug(f"{str(sw)}:{sw.host_port} -> {str(sw.host)}")
 
     def build_mpls_path(self, c1: City, c2: City, path: list):
@@ -639,7 +660,7 @@ class Controller(object):
                     target_city =  city_maps[sla.target]
                     src_city = self.parse_city_str(sla.src)[0]
                     dst_city = self.parse_city_str(sla.dst)[0]
-
+                    self.wps[src_city][dst_city] = target_city
                     # TODO: Optimize by ports?
                     for p in paths[src_city][dst_city]:
                         if target_city in p[0]:
@@ -960,9 +981,79 @@ class Controller(object):
             self.best_paths = self.cal_best_paths(self.paths)
             self.build_mpls_fec(self.best_paths)
 
-    def rt_flows(self, monitor: FlowMonitor, flows: dict):
-        logging.debug(f"[{str(monitor.sw)}] flows={flows}")
-        pass
+    
+    # def find_alternative_path(self, src: City, dst: City, spd: float):
+    #     all_possible_paths = self.paths[src][dst]
+    #     alternative_paths = []
+    #     for p, w in all_possible_paths:
+    #         s = 0
+    #         fullfilled = True
+    #         for i in range(len(p) - 1):
+    #             s += self.links_capacity[p[i]][p[i+1]]
+    #             if self.links_capacity[p[i]][p[i+1]] < spd:
+    #                 fullfilled = False
+            
+    #         if fullfilled:
+    #             return p
+            
+    #         alternative_paths.append((p, s))
+        
+    #     # No path is fully available
+    #     alternative_paths.sort(key=lambda tp: tp[1])
+    #     return alternative_paths[0][0]
+    
+    def find_alternative_path(self, src: City, dst: City, spd: float):
+        all_possible_paths = self.paths[src][dst]
+        #logging.debug(f"link=\n{np.array(self.links_capacity)}")
+        for p, w in all_possible_paths:
+            if self.fullfil_link_capcaity(p, spd):
+                return p
+        
+        return None
+
+    def rt_flows(self, monitor: FlowMonitor, flows: dict, interval: float):
+        #logging.debug(f"flows={flows} float={interval}")
+        cur_links = [ [ 0 for _ in range(16) ] for _ in range(16)]
+
+        for c1 in self.weights:
+            for c2 in self.weights[c1]:
+                cur_links[c1][c2] = 1e7
+                cur_links[c2][c1] = 1e7
+
+        cur_links_map = [ [ [] for _ in range(16) ] for _ in range(16)]
+        for src, fls in flows.items():
+            for fl, spd in fls.items():
+                c1, _, c2, _ = fl
+                spd = (spd / interval) * 8
+                if c1 == src:  
+                    path = self.best_paths[c1][c2]
+                    
+                    for i in range(len(path) - 1):
+                        # Substract every link by the flow speed
+                        cur_links[path[i]][path[i+1]] -= spd
+                        # Create a reverse mapping for all paths which contains the specific link
+                        cur_links_map[path[i]][path[i+1]].append( (c1, c2, spd, path) )
+        
+        #logging.debug(f"cur_links={np.array(cur_links)}")
+
+        for c1 in self.weights:
+            for c2 in self.weights[c1]:
+                # A link is overloaded!
+                #logging.debug(f"{c1} {c2} {cur_links[c1][c2]}")
+                if cur_links[c1][c2] < 0:
+                    # The paths to reroute
+                    paths = cur_links_map[c1][c2]
+                    #logging.debug(f"paths={paths}")
+                    for src, dst, spd, path in paths:
+
+                        if self.wps[src][dst] is None:
+                            alternative_path = self.find_alternative_path(src, dst, spd)
+                            # Safe reroute strategy: Only reroute if we indeed find one which satisfy all links.
+                            if alternative_path is not None:
+                                logging.debug(f"Reroute fron {path} to {alternative_path}")
+                                self.best_paths[src][dst] = alternative_path
+                                self.build_mpls_from_to(src, dst, alternative_path)
+                                return
 
     def rt_speed(self, last_information: dict, information: dict, interval: float):
         for sw1 in self.switches:
@@ -992,6 +1083,8 @@ class Controller(object):
 
     def start_monitor(self):
         ts = []
+        ts.append(LinkMonitor(self.rt_speed, 0.5))
+        ts.append(FlowMonitor(self.switches, self.rt_flows, 0.5))
 
         for i in range(16):
             c1 = City(i)
@@ -1008,8 +1101,6 @@ class Controller(object):
         
         for i in range(16):
             ts.append(Pong(self.switches[i], 0.5, self.has_failure, self.no_failure))
-            ts.append(FlowMonitor(self.switches[i], self.rt_flows, 0.5))
-            ts.append(LinkMonitor(self.rt_speed, 0.5))
         #ts.append(Pong(self.switches[City.AMS], 0.5, self.has_failure, self.no_failure, self.rt_speed))
         
         for t in ts:
